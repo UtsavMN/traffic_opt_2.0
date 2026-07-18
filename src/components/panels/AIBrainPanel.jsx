@@ -47,13 +47,25 @@ export default function AIBrainPanel({ getIntersectionData }) {
       <div className="panel-section">
         <div className="panel-section__title">AI Engine</div>
         <div className="ai-mode-steps">
-          <div className={`ai-mode-step ${mode === 'ADAPTIVE' ? 'ai-mode-step--active' : 'ai-mode-step--completed'}`}>
+          <div 
+            className={`ai-mode-step ${mode === 'ADAPTIVE' ? 'ai-mode-step--active' : 'ai-mode-step--completed'}`}
+            style={{ cursor: 'pointer' }}
+            onClick={() => useAIStore.getState().setMode('ADAPTIVE')}
+          >
             Adaptive
           </div>
-          <div className={`ai-mode-step ${mode === 'RL_SHADOW' ? 'ai-mode-step--active' : ''}`}>
+          <div 
+            className={`ai-mode-step ${mode === 'RL_SHADOW' ? 'ai-mode-step--active' : ''}`}
+            style={{ cursor: 'pointer' }}
+            onClick={() => useAIStore.getState().setMode('RL_SHADOW')}
+          >
             RL Shadow
           </div>
-          <div className={`ai-mode-step ${mode === 'RL_ACTIVE' ? 'ai-mode-step--active' : ''}`}>
+          <div 
+            className={`ai-mode-step ${mode === 'RL_ACTIVE' ? 'ai-mode-step--active' : ''}`}
+            style={{ cursor: 'pointer' }}
+            onClick={() => useAIStore.getState().setMode('RL_ACTIVE')}
+          >
             RL Active
           </div>
         </div>

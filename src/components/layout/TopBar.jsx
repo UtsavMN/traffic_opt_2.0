@@ -24,7 +24,7 @@ export default function TopBar() {
       <div className="topbar__info">
         <div className="topbar__info-item">
           <span className="label">City</span>
-          <span>{scenario === 'mumbai' ? 'Mumbai' : 'Metro City'}</span>
+          <span>{scenario === 'bengaluru_central' ? 'Bengaluru Central' : scenario.replace('bengaluru_', 'Bengaluru ').replace(/^\w/, c => c.toUpperCase())}</span>
         </div>
         <div className="topbar__divider" />
         <div className="topbar__info-item">

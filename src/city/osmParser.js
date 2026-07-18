@@ -3,9 +3,19 @@ import { CityGraph } from '../simulation/CityGraph.js';
 /**
  * Parses GeoJSON road network data into a CityGraph
  */
-export function parseOSMRoads(geojson) {
+export function parseOSMRoads(geojson, bounds = null) {
   const graph = new CityGraph();
-  const roads = geojson.features.filter(f => f.geometry.type === 'LineString');
+  let roads = geojson.features.filter(f => f.geometry.type === 'LineString');
+
+  if (bounds) {
+    roads = roads.filter(road => {
+      // Check if any coordinate of the road is within the bounds
+      return road.geometry.coordinates.some(([lng, lat]) => {
+        return lng >= bounds.minLng && lng <= bounds.maxLng &&
+               lat >= bounds.minLat && lat <= bounds.maxLat;
+      });
+    });
+  }
 
   // 1. Bounding box & coordinate transform
   let minLng = Infinity, maxLng = -Infinity;
@@ -68,27 +78,14 @@ export function parseOSMRoads(geojson) {
     let currentSegmentStartKey = null;
     let currentSegmentStartId = null;
 
-    // Parse attributes
-    const highway = props.highway || 'residential';
-    let type = 'local';
-    let lanes = 1;
-    let speedLimit = 40;
+    const DEFAULT_LANES = { motorway:4, trunk:3, primary:2, secondary:2, tertiary:1, residential:1, unclassified:1, service:1 };
+    const DEFAULT_SPEED_KMH = { motorway:100, trunk:80, primary:60, secondary:50, tertiary:40, residential:30, unclassified:30, service:15 };
     
-    if (highway === 'motorway' || highway === 'trunk') { type = 'highway'; lanes = 3; speedLimit = 80; }
-    else if (highway === 'primary') { type = 'arterial'; lanes = 2; speedLimit = 60; }
-    else if (highway === 'secondary' || highway === 'tertiary') { type = 'arterial'; lanes = 2; speedLimit = 50; }
-    
-    // Override with specific tags if present
-    if (props.lanes) {
-      const parsedLanes = parseInt(props.lanes);
-      if (!isNaN(parsedLanes) && parsedLanes > 0) lanes = parsedLanes;
-    }
-    if (props.maxspeed) {
-      const parsedSpeed = parseInt(props.maxspeed);
-      if (!isNaN(parsedSpeed) && parsedSpeed > 0) speedLimit = parsedSpeed;
-    }
-
-    const oneway = props.oneway === 'yes' || props.oneway === '1' || highway === 'motorway';
+    const hw = props.highway || 'unclassified';
+    const lanes = parseInt(props.lanes) || DEFAULT_LANES[hw] || 1;
+    const speedLimit = parseInt(props.maxspeed) || DEFAULT_SPEED_KMH[hw] || 30;
+    const oneway = props.oneway === 'yes' || props.oneway === '1' || hw === 'motorway' || props.junction === 'roundabout';
+    const type = hw;
 
     for (let i = 0; i < coords.length; i++) {
       const coord = coords[i];
@@ -109,5 +106,103 @@ export function parseOSMRoads(geojson) {
     }
   });
 
+  // 4. Prune disconnected nodes
+  pruneDisconnectedNodes(graph);
+
+  // 5. Cluster nearby nodes (flower effect fix)
+  clusterNearbyNodes(graph, 1); // 1 = default scale for now
+
   return { graph, transform };
+}
+
+export function pruneDisconnectedNodes(graph) {
+  const nodes = graph.getAllNodes();
+  if (nodes.length === 0) return;
+
+  // Start BFS from highest-degree node
+  const start = nodes.reduce((a, b) =>
+    graph.getDegree(a.id) >= graph.getDegree(b.id) ? a : b
+  );
+
+  const visited = new Set();
+  const queue = [start.id];
+  while (queue.length > 0) {
+    const id = queue.shift();
+    if (visited.has(id)) continue;
+    visited.add(id);
+    for (const nid of graph.getNeighbors(id)) {
+      if (!visited.has(nid)) queue.push(nid);
+    }
+  }
+
+  // Remove nodes not in main component
+  let pruned = 0;
+  for (const node of nodes) {
+    if (!visited.has(node.id)) { graph.removeNode(node.id); pruned++; }
+  }
+
+  // Pre-filter spawnable nodes (degree >= 2)
+  graph.spawnableNodes = graph.getAllNodes().filter(n => graph.getDegree(n.id) >= 2);
+
+  console.log(`[Graph] Pruned ${pruned} disconnected nodes. Spawnable: ${graph.spawnableNodes.length}`);
+}
+
+export function clusterNearbyNodes(graph, CANVAS_SCALE) {
+  const THRESHOLD_PX = 20 * CANVAS_SCALE;  // 20 real meters
+  const nodes = [...graph.getAllNodes()];
+  const merged = new Map();  // oldId -> superJunctionId
+
+  // 1. Identify clusters and map old node IDs to superJunction IDs
+  for (const node of nodes) {
+    if (merged.has(node.id)) continue;
+    
+    // Find nearby nodes
+    const nearby = [];
+    for (const n of graph.getAllNodes()) {
+      if (n.id === node.id || merged.has(n.id)) continue;
+      const dist = Math.sqrt((n.x - node.x)**2 + (n.y - node.y)**2);
+      if (dist < THRESHOLD_PX) nearby.push(n);
+    }
+    
+    if (nearby.length === 0) {
+      merged.set(node.id, node.id);
+      continue;
+    }
+
+    const cluster = [node, ...nearby];
+    const cx = cluster.reduce((s,n) => s+n.x, 0) / cluster.length;
+    const cy = cluster.reduce((s,n) => s+n.y, 0) / cluster.length;
+    
+    const superId = `sj_${node.id}`;
+    // Add the super junction node
+    graph.addNode(superId, cx, cy, 'junction', 'residential');
+    
+    for (const n of cluster) { 
+      merged.set(n.id, superId); 
+    }
+  }
+
+  // 2. Clone the existing edges before modifying the graph
+  const originalEdges = Array.from(graph.edges.values());
+
+  // 3. Delete all old nodes (this will also delete all old edges and clean up adjacency list)
+  for (const oldId of merged.keys()) {
+    const newId = merged.get(oldId);
+    if (oldId !== newId) {
+      graph.removeNode(oldId);
+    }
+  }
+
+  // 4. Re-add remapped edges and filter out self-loops
+  for (const edge of originalEdges) {
+    const newFrom = merged.get(edge.from) || edge.from;
+    const newTo = merged.get(edge.to) || edge.to;
+    
+    if (newFrom !== newTo) {
+      // Add the edge with its original properties
+      graph.addEdge(newFrom, newTo, edge.lanes, edge.type, edge.speedLimit);
+    }
+  }
+
+  console.log(`[Cluster] ${nodes.length} -> ${graph.getAllNodes().length} nodes after super-junction merging`);
 }

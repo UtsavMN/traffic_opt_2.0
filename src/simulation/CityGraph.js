@@ -6,6 +6,18 @@ export class CityGraph {
     this.nodes = new Map(); // id -> { id, x, y, type, zone, connections[] }
     this.edges = new Map(); // "from->to" -> edge data
     this.adjacency = new Map(); // id -> Set of neighbor ids
+    this.bounds = { minX: 0, minY: 0, maxX: 4000, maxY: 4000 };
+  }
+
+  calculateBounds() {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [, n] of this.nodes) {
+      if (n.x < minX) minX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.x > maxX) maxX = n.x;
+      if (n.y > maxY) maxY = n.y;
+    }
+    this.bounds = { minX, minY, maxX, maxY };
   }
 
   addNode(id, x, y, type = 'junction', zone = 'residential') {
@@ -20,31 +32,25 @@ export class CityGraph {
 
     const dx = to.x - from.x, dy = to.y - from.y;
     const length = Math.sqrt(dx * dx + dy * dy);
+    if (length < 1) return; // skip zero-length edges
+
+    const edgeId = `${fromId}->${toId}`;
+    if (this.edges.has(edgeId)) return; // skip duplicates
 
     const edge = {
-      id: `${fromId}->${toId}`,
+      id: edgeId,
       from: fromId, to: toId,
       lanes, type, speedLimit, length,
-      blocked: 0, // number of blocked lanes
+      blocked: 0,
       direction: Math.atan2(dy, dx)
     };
 
     this.edges.set(edge.id, edge);
+    if (!this.adjacency.has(fromId)) this.adjacency.set(fromId, new Set());
+    if (!this.adjacency.has(toId)) this.adjacency.set(toId, new Set());
     this.adjacency.get(fromId).add(toId);
 
-    // Bidirectional
-    const revEdge = {
-      id: `${toId}->${fromId}`,
-      from: toId, to: fromId,
-      lanes, type, speedLimit, length,
-      blocked: 0,
-      direction: Math.atan2(-dy, -dx)
-    };
-    this.edges.set(revEdge.id, revEdge);
-    this.adjacency.get(toId).add(fromId);
-
-    from.connections.push(toId);
-    to.connections.push(fromId);
+    if (!from.connections.includes(toId)) from.connections.push(toId);
   }
 
   getNeighbors(nodeId) {
@@ -76,5 +82,59 @@ export class CityGraph {
   getRandomBorderNode() {
     const border = this.getBorderNodes();
     return border[Math.floor(Math.random() * border.length)];
+  }
+
+  getAllNodes() {
+    return Array.from(this.nodes.values());
+  }
+
+  getNodesInBounds(bounds) {
+    const result = [];
+    for (const [, node] of this.nodes) {
+      if (node.x >= bounds.minX && node.x <= bounds.maxX &&
+          node.y >= bounds.minY && node.y <= bounds.maxY) {
+        result.push(node);
+      }
+    }
+    return result;
+  }
+
+  getDegree(nodeId) {
+    return this.adjacency.has(nodeId) ? this.adjacency.get(nodeId).size : 0;
+  }
+
+  removeEdge(edgeId) {
+    const edge = this.edges.get(edgeId);
+    if (!edge) return;
+    this.edges.delete(edgeId);
+    
+    // Remove from adjacency list
+    const fromAdj = this.adjacency.get(edge.from);
+    if (fromAdj) fromAdj.delete(edge.to);
+    
+    // Remove from connections array
+    const fromNode = this.nodes.get(edge.from);
+    if (fromNode) {
+      fromNode.connections = fromNode.connections.filter(id => id !== edge.to);
+    }
+  }
+
+  removeNode(nodeId) {
+    if (!this.nodes.has(nodeId)) return;
+    
+    // Find and remove all connected edges
+    const edgesToRemove = [];
+    for (const [edgeId, edge] of this.edges) {
+      if (edge.from === nodeId || edge.to === nodeId) {
+        edgesToRemove.push(edgeId);
+      }
+    }
+    
+    for (const edgeId of edgesToRemove) {
+      this.removeEdge(edgeId);
+    }
+    
+    this.adjacency.delete(nodeId);
+    this.nodes.delete(nodeId);
   }
 }

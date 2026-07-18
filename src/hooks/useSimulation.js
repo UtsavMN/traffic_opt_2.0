@@ -37,11 +37,12 @@ export function useSimulation() {
       pushReward(d.reward || 0);
     };
 
-    // Multi-Agent Coordinator (shadow RL)
+    // Multi-Agent Coordinator (shadow/active RL)
     const coordinator = new MultiAgentCoordinator();
     coordinatorRef.current = coordinator;
 
-    // Set AI controller on engine
+    // Set AI controller on engine and bind coordinator
+    controller.coordinator = coordinator;
     engine.aiController = controller;
 
     // Metrics bridge
@@ -49,8 +50,9 @@ export function useSimulation() {
       updateMetrics(data);
       pushSnapshot({
         vehicleCount: data.vehicleCount,
-        avgWait: data.avgWaitTime,
+        avgWaitTime: data.avgWaitTime,
         throughput: data.throughput,
+        spawnRate: data.spawnRate,
       });
 
       // Update RL coordinator
@@ -59,16 +61,16 @@ export function useSimulation() {
     };
 
     // Load default scenario
-    loadScenario('bengaluru', engine).then(() => {
+    loadScenario('bengaluru_central', engine).then(() => {
       engine.start();
+      useSimStore.getState().setScenario('bengaluru_central');
+      useSimStore.getState().setLoading(null);
     }).catch(e => {
-      console.error("Failed to load bengaluru scenario, falling back to grid", e);
-      loadScenario('generic_grid', engine);
-      engine.start();
+      console.error("Failed to load default scenario:", e);
     });
 
     return () => {
-      engine.stop();
+      engine.destroy();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -1,4 +1,5 @@
 import { Vector2 } from './Vector2.js';
+import { LANE_WIDTH_PX, VEHICLE_DIMS, CANVAS_SCALE } from '../constants.js';
 
 /**
  * Vehicle — Car/Bus/Truck/Motorcycle/Emergency entity
@@ -22,50 +23,56 @@ const CAR_COLORS = [
 let vehicleIdCounter = 0;
 
 export class Vehicle {
-  static _pool = [];
-
-  static create(type, route, graph) {
-    if (this._pool.length > 0) {
-      const v = this._pool.pop();
-      v.init(type, route, graph);
-      return v;
-    }
-    return new Vehicle(type, route, graph);
-  }
-
-  static free(v) {
-    v.alive = false;
-    this._pool.push(v);
-  }
-
   constructor(type, route, graph) {
-    this.init(type, route, graph);
+    // Support no-arg construction for pool pre-allocation
+    if (type && route && graph) {
+      this.init(type, route, graph);
+    } else {
+      // Uninitialized placeholder — will be init()'d by pool.acquire()
+      this.alive = false;
+      this.pos = new Vector2(0, 0);
+      this.route = null;
+      this.graph = null;
+    }
   }
 
   init(type, route, graph) {
-    const cfg = VEHICLE_TYPES[type] || VEHICLE_TYPES.car;
+    const dim = VEHICLE_DIMS[type] || VEHICLE_DIMS.car;
     this.id = `v${vehicleIdCounter++}`;
     this.type = type;
-    this.length = cfg.length;
-    this.width = cfg.width;
-    this.maxSpeed = cfg.maxSpeed * (0.85 + Math.random() * 0.3);
-    this.accel = cfg.accel;
-    this.color = cfg.color || CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
-    this.sirenActive = type === 'emergency';
+    this.length = dim.length * CANVAS_SCALE;
+    this.width = dim.width * CANVAS_SCALE;
+    const baseSpeedPxS = (dim.maxSpeed * 1000 / 3600) * CANVAS_SCALE;
+    this.maxSpeed = baseSpeedPxS * (0.85 + Math.random() * 0.3);
+    this.accel = dim.accel * CANVAS_SCALE; // Accel in pixels/s^2
+    this.color = CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
+    if (type === 'bus') this.color = '#FFB400';
+    if (type === 'truck') this.color = '#8B8F98';
+    if (type === 'motorcycle') this.color = '#E8EAED';
+    if (type === 'emergency') {
+      this.color = '#FF3B5C';
+      this.sirenActive = true;
+    } else {
+      this.sirenActive = false;
+    }
     
     this.route = route;       // array of intersection IDs
     this.routeIndex = 0;      // current segment index
     this.segmentProgress = 0; // 0-1 along current edge
     this.graph = graph;
+    this.spawnTime = performance.now();
     
     // Physics
-    this.pos = new Vector2(0, 0);
+    if (!this.pos) this.pos = new Vector2(0, 0);
+    this.pos.x = 0;
+    this.pos.y = 0;
     this.heading = 0;
     this.speed = 0;
     this.state = 'moving'; // moving, braking, stopped, turning
     this.waitTime = 0;
     this.distanceTravelled = 0;
     this.alive = true;
+    this.inViewport = false;
     
     // Lane offset
     this.laneOffset = undefined;
@@ -102,7 +109,7 @@ export class Vehicle {
     return dy > 0 ? 'S' : 'N';
   }
 
-  _updatePosition() {
+  _updatePosition(dt = 0.016) {
     const edge = this.currentEdge;
     if (!edge) {
       this.alive = false;
@@ -118,12 +125,12 @@ export class Vehicle {
       this.laneIndex = this.type === 'bus' ? edge.lanes - 1 : Math.floor(Math.random() * edge.lanes);
       if (this.sirenActive) this.laneIndex = Math.floor(Math.random() * edge.lanes);
     }
-    const LANE_WIDTH = 8;
-    const targetLaneOffset = (this.laneIndex - edge.lanes / 2 + 0.5) * LANE_WIDTH;
+    const targetLaneOffset = (this.laneIndex - edge.lanes / 2 + 0.5) * LANE_WIDTH_PX();
     
-    // Smooth lane keeping
+    // Smooth lane keeping (frame-rate independent)
     if (this.laneOffset === undefined) this.laneOffset = targetLaneOffset;
-    this.laneOffset += (targetLaneOffset - this.laneOffset) * 0.1;
+    const laneLerp = 1 - Math.pow(0.9, dt * 60);
+    this.laneOffset += (targetLaneOffset - this.laneOffset) * laneLerp;
 
     const dx = to.x - from.x, dy = to.y - from.y;
     const len = Math.sqrt(dx * dx + dy * dy);
@@ -137,7 +144,17 @@ export class Vehicle {
     const t = this.segmentProgress;
     this.pos.x = from.x + dx * t + perpX * this.laneOffset;
     this.pos.y = from.y + dy * t + perpY * this.laneOffset;
-    this.heading = Math.atan2(dy, dx);
+    
+    const targetHeading = Math.atan2(dy, dx);
+    if (this.heading === undefined || this.speed < 0.1) {
+      this.heading = targetHeading;
+    } else {
+      let diff = targetHeading - this.heading;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      const headingLerp = 1 - Math.pow(0.85, dt * 60);
+      this.heading += diff * headingLerp;
+    }
   }
 
   update(dt, intersections, spatialGrid, weatherMult = 1, isNight = false) {
@@ -146,45 +163,12 @@ export class Vehicle {
     const edge = this.currentEdge;
     if (!edge) { this.alive = false; return; }
     
-    const speedLimit = edge.speedLimit * weatherMult;
+    const speedLimit = ((edge.speedLimit || 40) * 1000 / 3600) * CANVAS_SCALE * weatherMult;
     let desiredSpeed = Math.min(this.maxSpeed, speedLimit);
     
     // MACRO SIMULATION (Out of Focus Area)
     if (!this.inViewport) {
-      const nextIntersection = this.nextNode;
-      if (nextIntersection && this.segmentProgress > 0.8) {
-        const intObj = intersections.get(this.route[this.routeIndex + 1]);
-        if (intObj) {
-          const dir = this._getDirection();
-          if (dir && !intObj.trafficLight.canPass(dir) && !this.sirenActive) {
-            desiredSpeed = 0;
-          }
-        }
-      }
-      
-      if (this.speed < desiredSpeed) this.speed += this.accel * dt;
-      else if (this.speed > desiredSpeed) this.speed -= this.accel * 2 * dt;
-      
-      this.speed = Math.max(0, Math.min(this.speed, this.maxSpeed));
-      
-      if (this.speed < 2) {
-        this.state = 'stopped';
-        this.waitTime += dt;
-      } else {
-        this.state = 'moving';
-        this.waitTime = 0;
-      }
-
-      this.distanceTravelled += this.speed * dt;
-      this.segmentProgress += (this.speed * dt) / edge.length;
-
-      if (this.segmentProgress >= 1) {
-        this.routeIndex++;
-        this.segmentProgress = 0;
-        this.currentEdgeId = null;
-      }
-
-      this._updatePosition();
+      this._macroUpdate(dt, intersections, edge, desiredSpeed);
       return;
     }
     
@@ -197,62 +181,58 @@ export class Vehicle {
       if (intObj) {
         const dir = this._getDirection();
         if (dir && !intObj.trafficLight.canPass(dir) && !this.sirenActive) {
-          // Need to stop before intersection
-          const remainingDist = (1 - this.segmentProgress) * edge.length;
-          if (remainingDist < 40) {
-            desiredSpeed = 0;
-          } else if (remainingDist < 80) {
-            desiredSpeed = desiredSpeed * (remainingDist / 80);
-          }
+          // Calculate distance to stop line (usually 15px back from intersection)
+          const rem = (1 - this.segmentProgress) * edge.length;
+          if (rem < 35) desiredSpeed = 0;
         }
       }
     }
     
-    // Check vehicles ahead (spatial grid query)
-    if (spatialGrid) {
-      const lookAhead = new Vector2(Math.cos(this.heading), Math.sin(this.heading));
-      const MIN_HEADWAY_SECONDS = 1.8;
-      const safeDistance = this.speed * MIN_HEADWAY_SECONDS + this.length;
-      const checkDist = Math.max(30, safeDistance * 1.5);
+    // Car following (IDM-like logic)
+    const ahead = spatialGrid.query(this.pos.x, this.pos.y, 45); // Query nearby vehicles
+    let minGap = Infinity;
+    let leadVehicle = null;
+    
+    for (const other of ahead) {
+      if (other.id === this.id || !other.alive) continue;
+      // Must be on the same edge and lane
+      if (other.currentEdgeId !== this.currentEdgeId || other.laneIndex !== this.laneIndex) continue;
       
-      const checkPos = this.pos.add(lookAhead.mult(checkDist * 0.5));
-      const nearby = spatialGrid.query(checkPos.x, checkPos.y, checkDist);
-      
-      for (const other of nearby) {
-        if (other === this || !other.pos) continue;
-        const toOther = other.pos.sub(this.pos);
-        const dist = toOther.mag();
-        if (dist < 5 || dist > checkDist) continue;
-        
-        // Check if other is ahead (dot product with heading)
-        const dot = toOther.normalize().dot(lookAhead);
-        if (dot > 0.5) {
-          // Lateral check (only react if in same lane or close)
-          const lateral = Math.abs(toOther.cross(lookAhead));
-          if (lateral < 10) {
-            const gap = dist - this.length;
-            if (gap < safeDistance) {
-              desiredSpeed = Math.min(desiredSpeed, (gap / safeDistance) * this.speed * 0.8);
-              if (gap < this.length) desiredSpeed = 0;
-            }
-          }
+      // Must be in front of us
+      if (other.segmentProgress > this.segmentProgress) {
+        const gap = (other.segmentProgress - this.segmentProgress) * edge.length - this.length;
+        if (gap < minGap && gap > -5) {
+          minGap = gap;
+          leadVehicle = other;
         }
       }
     }
     
-    // Apply acceleration/braking
-    if (desiredSpeed > this.speed) {
-      this.speed = Math.min(desiredSpeed, this.speed + this.accel * dt);
-    } else {
-      this.speed = Math.max(desiredSpeed, this.speed - this.accel * 2 * dt);
+    if (leadVehicle) {
+      // Safety distance based on speed (1.8s headway rule)
+      const safeDistance = 15 + this.speed * 1.8;
+      if (minGap < safeDistance) {
+        // Adjust speed to lead vehicle
+        desiredSpeed = Math.min(desiredSpeed, leadVehicle.speed * Math.max(0, (minGap - 8) / (safeDistance - 8)));
+      }
     }
+    
+    // Acceleration / Braking
+    if (this.speed < desiredSpeed) {
+      this.speed += this.accel * dt;
+    } else if (this.speed > desiredSpeed) {
+      // Hard braking if speed is significantly higher than desired
+      const brakeFactor = desiredSpeed === 0 ? 3 : 1.5;
+      this.speed -= this.accel * brakeFactor * dt;
+    }
+    
+    this.speed = Math.max(0, Math.min(this.speed, this.maxSpeed));
     
     if (this.speed < 2) {
-      this.speed = 0;
       this.state = 'stopped';
       this.waitTime += dt;
     } else {
-      this.state = desiredSpeed < this.speed * 0.5 ? 'braking' : 'moving';
+      this.state = 'moving';
     }
     
     // Move along segment
@@ -267,6 +247,7 @@ export class Vehicle {
         this.routeIndex++;
         
         if (this.routeIndex >= this.route.length - 1) {
+          this._recordTripComplete();
           this.alive = false;
           return;
         }
@@ -276,6 +257,79 @@ export class Vehicle {
       }
     }
     
+    const finalNode = this.route[this.route.length - 1];
+    const finalPos = this.graph.nodes.get(finalNode);
+    if (finalPos && this.routeIndex === this.route.length - 2) {
+      const dist = Math.hypot(this.pos.x - finalPos.x, this.pos.y - finalPos.y);
+      if (dist < 15) {
+        this._recordTripComplete();
+        this.alive = false;
+        return;
+      }
+    }
+    
+    this._updatePosition(dt);
+  }
+
+  _recordTripComplete() {
+    if (typeof window !== 'undefined' && window.__zenithMetrics) {
+      window.__zenithMetrics.recordTripComplete({
+        waitTime: this.waitTime,
+        travelTime: (performance.now() - (this.spawnTime || 0)) / 1000,
+        distance: this.distanceTravelled,
+      });
+    }
+  }
+
+  _macroUpdate(dt, intersections, edge, desiredSpeed) {
+    const nextIntersection = this.nextNode;
+    // Base speed on edge density
+    if (edge.density !== undefined && edge.lanes) {
+      // 100 vehicles per km per lane is typical jam density
+      // Length is in pixels. Let's convert density per 100 meters
+      const lengthM = edge.length / CANVAS_SCALE;
+      const densityPer100m = (edge.density / (lengthM / 100)) / edge.lanes;
+      if (densityPer100m > 5) desiredSpeed *= Math.max(0.1, 1 - (densityPer100m / 20));
+    }
+
+    if (nextIntersection && this.segmentProgress > 0.8) {
+      const intObj = intersections.get(this.route[this.routeIndex + 1]);
+      if (intObj) {
+        const dir = this._getDirection();
+        if (dir && !intObj.trafficLight.canPass(dir) && !this.sirenActive) {
+          desiredSpeed = 0;
+        }
+      }
+    }
+    
+    if (this.speed < desiredSpeed) this.speed += this.accel * dt;
+    else if (this.speed > desiredSpeed) this.speed -= this.accel * 2 * dt;
+    
+    this.speed = Math.max(0, Math.min(this.speed, this.maxSpeed));
+    
+    if (this.speed < 2) {
+      this.state = 'stopped';
+      this.waitTime += dt;
+    } else {
+      this.state = 'moving';
+    }
+
+    if (this.speed > 0 && edge.length > 0) {
+      this.distanceTravelled += this.speed * dt;
+      this.segmentProgress += (this.speed * dt) / edge.length;
+
+      if (this.segmentProgress >= 1) {
+        this.routeIndex++;
+        this.segmentProgress = 0;
+        this.currentEdgeId = null;
+        if (this.routeIndex >= this.route.length - 1) {
+          this._recordTripComplete();
+          this.alive = false;
+          return;
+        }
+      }
+    }
+
     this._updatePosition();
   }
 }

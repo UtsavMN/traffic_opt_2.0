@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useSimStore } from '../../store/simStore.js';
 import { useUIStore } from '../../store/uiStore.js';
 import { SCENARIOS } from '../../city/CityLoader.js';
+import TrafficPolicePanel from './TrafficPolicePanel.jsx';
+import MetricsDashboard from './MetricsDashboard.jsx';
 
 const WEATHER_OPTIONS = [
   { id: 'clear', icon: '☀️', label: 'Clear' },
@@ -28,49 +30,16 @@ export default function Sidebar({
 }) {
   const simSpeed = useSimStore(s => s.simSpeed);
   const weather = useSimStore(s => s.weather);
-  const vehicleCount = useSimStore(s => s.vehicleCount);
-  const avgWaitTime = useSimStore(s => s.avgWaitTime);
-  const throughput = useSimStore(s => s.throughput);
   const overlays = useUIStore(s => s.overlays);
+
   const [spawnVal, setSpawnVal] = useState(1.0);
   const [timeVal, setTimeVal] = useState(8);
-  const [selectedScenario, setSelectedScenario] = useState('bengaluru');
-
-  const waitColor = avgWaitTime < 10 ? 'green' : avgWaitTime < 30 ? 'amber' : 'red';
-
-  // AI Efficiency (simple heuristic: lower wait = better)
-  const efficiency = Math.max(0, Math.min(100, Math.round(100 - avgWaitTime * 2)));
+  const [selectedScenario, setSelectedScenario] = useState('bengaluru_central');
 
   return (
     <div className="sidebar">
-      {/* Section 1: Live KPIs */}
-      <div className="panel-section">
-        <div className="panel-section__title">Live Metrics</div>
-        <div className="metrics-grid">
-          <div className="metric-card">
-            <span className="metric-card__label">Vehicles</span>
-            <span className="metric-card__value">{vehicleCount}</span>
-          </div>
-          <div className="metric-card">
-            <span className="metric-card__label">Avg Wait</span>
-            <span className={`metric-card__value metric-card__value--${waitColor}`}>
-              {avgWaitTime.toFixed(1)}s
-            </span>
-          </div>
-          <div className="metric-card">
-            <span className="metric-card__label">Throughput</span>
-            <span className="metric-card__value metric-card__value--blue">
-              {Math.round(throughput)}/m
-            </span>
-          </div>
-          <div className="metric-card">
-            <span className="metric-card__label">AI Score</span>
-            <span className={`metric-card__value metric-card__value--${efficiency > 70 ? 'green' : efficiency > 40 ? 'amber' : 'red'}`}>
-              {efficiency}
-            </span>
-          </div>
-        </div>
-      </div>
+      <TrafficPolicePanel />
+      <MetricsDashboard />
 
       {/* Section 2: Controls */}
       <div className="panel-section">

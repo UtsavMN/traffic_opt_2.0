@@ -1,12 +1,14 @@
 import { SpatialGrid } from './SpatialGrid.js';
+import { useMetricsStore } from '../store/metricsStore.js';
 import { Intersection } from './Intersection.js';
-import { Vehicle } from './Vehicle.js';
+import { VehiclePool } from './VehiclePool.js';
 import { Pedestrian } from './Pedestrian.js';
 import { Cyclist } from './Cyclist.js';
 import { WeatherSystem } from './WeatherSystem.js';
 import { TimeOfDay } from './TimeOfDay.js';
 import { AccidentSystem } from './AccidentSystem.js';
 import { Renderer } from './Renderer.js';
+import { TrafficPolice } from './TrafficPolice.js';
 import { findPath } from '../utils/pathfinding.js';
 import { RollingAverage } from '../utils/statistics.js';
 
@@ -18,15 +20,18 @@ export class Engine {
     this.canvas = canvas;
     this.renderer = new Renderer(canvas);
     this.spatialGrid = new SpatialGrid(50);
+    this.vehiclePool = new VehiclePool(500);
 
     // City graph (set by loadCity)
     this.graph = null;
     this.intersections = new Map(); // id -> Intersection
+    this.intersectionGrid = null; // SpatialGrid for O(1) intersection lookup
 
     // Entity pools
     this.vehicles = [];
     this.pedestrians = [];
     this.cyclists = [];
+    this.policeUnits = [];
 
     // Systems
     this.weather = new WeatherSystem();
@@ -43,6 +48,7 @@ export class Engine {
     this.spawnTimer = 0;
     this.pedSpawnTimer = 0;
     this.cyclistSpawnTimer = 0;
+    this.densityTimer = 0;
 
     // Metrics
     this.totalSpawned = 0;
@@ -64,36 +70,74 @@ export class Engine {
     // Selected intersection
     this.selectedIntersectionId = null;
 
+    // Web Worker for pathfinding
+    this._pfWorker = new Worker(new URL('../workers/pathfinder.worker.js', import.meta.url), { type: 'module' });
+    this._pfCallbacks = new Map();
+    this._pfWorker.onmessage = ({ data }) => {
+      const cb = this._pfCallbacks.get(data.id);
+      if (cb) { cb(data.route); this._pfCallbacks.delete(data.id); }
+    };
+
     // Bind
     this._loop = this._loop.bind(this);
   }
 
   loadCity(graph) {
+    if (!this._pfWorker) return;
     this.graph = graph;
     this.intersections.clear();
     this.vehicles = [];
     this.pedestrians = [];
     this.cyclists = [];
+    this.policeUnits = [];
     this.totalSpawned = 0;
     this.totalDespawned = 0;
     this.totalWaitTime = 0;
     this.vehiclesPassed = 0;
 
+    // Initialize Worker with graph
+    this._pfWorker.postMessage({ type: 'INIT', graph });
+
     for (const [id, node] of graph.nodes) {
-      this.intersections.set(id, new Intersection(id, node.x, node.y, node.zone));
+      const intersection = new Intersection(id, node.x, node.y, node.zone);
+      // Wire up green phase callback (decoupled from React in Intersection.js)
+      intersection.onGreenPhaseEnd = (hadVehicles) => {
+        if (typeof window !== 'undefined' && window.__zenithMetrics) {
+          useMetricsStore.getState().recordGreenPhase(hadVehicles);
+        }
+      };
+      this.intersections.set(id, intersection);
     }
 
-    // Center camera on city
-    let cx = 0, cy = 0, count = 0;
-    for (const [, n] of graph.nodes) { cx += n.x; cy += n.y; count++; }
-    if (count > 0) {
-      this.renderer.camera.x = cx / count;
-      this.renderer.camera.y = cy / count;
+    this.intersectionGrid = new SpatialGrid(80);
+    for (const int of this.intersections.values()) {
+      this.intersectionGrid.insert({
+        pos: { x: int.x, y: int.y },
+        intersection: int
+      });
     }
-    // Ensure canvas is sized before auto-zoom
+
+    // Auto-center and auto-zoom on the city
     this.renderer.resize();
-    this._autoZoom();
-    this._needsAutoZoom = true;
+    let cx = 0, cy = 0, count = 0;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const [, n] of graph.nodes) {
+      cx += n.x; cy += n.y; count++;
+      minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x);
+      minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y);
+    }
+    if (count > 0) {
+      cx /= count; cy /= count;
+      const pad = 80;
+      const gw = maxX - minX + pad * 2;
+      const gh = maxY - minY + pad * 2;
+      const zx = (this.renderer.width || 800) / gw;
+      const zy = (this.renderer.height || 600) / gh;
+      const fitZoom = Math.max(0.08, Math.min(zx, zy, 2));
+      this.renderer.camera.centerOn(cx, cy, fitZoom);
+      console.log(`[Camera] Centered on (${cx.toFixed(0)}, ${cy.toFixed(0)}) zoom=${fitZoom.toFixed(3)}`);
+    }
+    this.renderer.cacheRoads(graph);
   }
 
   _autoZoom() {
@@ -120,6 +164,15 @@ export class Engine {
   }
 
   stop() { this.running = false; }
+
+  destroy() {
+    this.stop();
+    if (this._pfWorker) {
+      this._pfWorker.terminate();
+      this._pfWorker = null;
+    }
+    this._pfCallbacks.clear();
+  }
 
   _loop(now) {
     if (!this.running) return;
@@ -148,6 +201,8 @@ export class Engine {
   }
 
   _update(dt) {
+    if (!this.graph) return;
+    
     // Time of day
     this.timeOfDay.update(dt);
 
@@ -167,8 +222,22 @@ export class Engine {
       this.aiController.update(dt, this);
     }
 
-    // Spawn vehicles
-    this._spawnEntities(dt);
+    // Spawn vehicles (Async — fire-and-forget with error catch)
+    this._spawnTick(dt).catch(e => console.warn('[Spawn] Error:', e));
+
+    // Spawn pedestrians
+    this.pedSpawnTimer += dt;
+    if (this.pedSpawnTimer > 2.0) { // every 2s
+      this.pedSpawnTimer = 0;
+      this._spawnPedestrian();
+    }
+
+    // Spawn cyclists
+    this.cyclistSpawnTimer += dt;
+    if (this.cyclistSpawnTimer > 5.0) { // every 5s
+      this.cyclistSpawnTimer = 0;
+      this._spawnCyclist();
+    }
 
     // Spatial grid & Viewport bounds
     this.spatialGrid.clear();
@@ -178,6 +247,18 @@ export class Engine {
       if (!v.alive) continue;
       v.inViewport = this.renderer.isInsideViewport(v.pos.x, v.pos.y, bounds);
       if (v.inViewport) this.spatialGrid.insert(v);
+    }
+
+    this.densityTimer += dt;
+    if (this.densityTimer > 0.5) {
+      this.densityTimer = 0;
+      for (const [, edge] of this.graph.edges) edge.density = 0;
+      for (const v of this.vehicles) {
+        if (v.currentEdgeId) {
+          const e = this.graph.edges.get(v.currentEdgeId);
+          if (e) e.density++;
+        }
+      }
     }
 
     // Update vehicles and accumulate edge speeds (O(V) optimization)
@@ -198,6 +279,7 @@ export class Engine {
     }
 
     // Jam Detection & Police Assignment (only for active edges)
+    // Jam Detection & Police Assignment (only for active edges)
     for (const edge of activeEdges) {
       const avgSpeed = edge.currentSpeedSum / edge.vehicleCount;
       if (avgSpeed < edge.speedLimit * 0.1) {
@@ -206,21 +288,16 @@ export class Engine {
         edge.jamTimer = 0;
       }
       edge.isJammed = edge.jamTimer > 10;
-
-      // Police assignment on jammed approaches
-      if (edge.isJammed) {
-        const intTo = this.intersections.get(edge.to);
-        if (intTo && !intTo.policeActive) {
-          intTo.policeActive = true;
-          const angle = edge.direction;
-          let dir = 'S';
-          if (angle > -Math.PI/4 && angle <= Math.PI/4) dir = 'E';
-          else if (angle > Math.PI/4 && angle <= 3*Math.PI/4) dir = 'S';
-          else if (angle > 3*Math.PI/4 || angle <= -3*Math.PI/4) dir = 'W';
-          else dir = 'N';
-          intTo.policeDirection = dir;
-        }
+      
+      if (edge.jamTimer > 45) {
+        this.spawnPolice(edge.to);
+        edge.jamTimer = 0; // reset to prevent spamming
       }
+    }
+
+    // Update Police
+    for (const p of this.policeUnits) {
+      p.update(dt, this.intersections.get(p.intersectionId));
     }
 
     // Update queue counts
@@ -228,7 +305,7 @@ export class Engine {
 
     // Update pedestrians
     for (const p of this.pedestrians) {
-      p.update(dt, this.intersections);
+      p.update(dt, this.intersections, this.intersectionGrid);
     }
 
     // Update cyclists
@@ -243,41 +320,43 @@ export class Engine {
     this._updateMetrics(dt);
   }
 
-  _spawnEntities(dt) {
-    if (!this.graph) return;
-    const todMult = this.timeOfDay.spawnMultiplier;
-    const wMult = this.weather.spawnMult;
-    const effectiveRate = this.spawnRate * todMult * wMult;
-
-    // Vehicles
-    this.spawnTimer += dt;
-    const vInterval = 1 / Math.max(0.1, effectiveRate);
-    while (this.spawnTimer >= vInterval) {
-      this.spawnTimer -= vInterval;
-      this._spawnVehicle();
-    }
-
-    // Pedestrians (lower rate)
-    this.pedSpawnTimer += dt;
-    if (this.pedSpawnTimer >= 2 / Math.max(0.1, effectiveRate * 0.3)) {
-      this.pedSpawnTimer = 0;
-      this._spawnPedestrian();
-    }
-
-    // Cyclists (lowest rate)
-    this.cyclistSpawnTimer += dt;
-    if (this.cyclistSpawnTimer >= 4 / Math.max(0.1, effectiveRate * 0.15)) {
-      this.cyclistSpawnTimer = 0;
-      this._spawnCyclist();
-    }
+  findPathAsync(startId, endId) {
+    return new Promise(resolve => {
+      const id = crypto.randomUUID();
+      this._pfCallbacks.set(id, resolve);
+      this._pfWorker.postMessage({ type: 'FIND_PATH', id, startId, endId });
+    });
   }
 
-  _spawnVehicle() {
-    if (this.vehicles.length >= 400) return; // Cap active vehicles
+  async _spawnTick(dt) {
+    this._spawnTimer = (this._spawnTimer || 0) + dt;
+    const effectiveRate = (this.spawnRate || 0.8) * this.timeOfDay.spawnMultiplier;
+    if (this._spawnTimer < 1.0 / effectiveRate) return;
+    this._spawnTimer = 0;
     
-    const blocked = this.accidents.getBlockedEdges();
-    const start = this.graph.getRandomBorderNode();
-    
+    // Using this.vehicles.length because it's an array
+    if (this.vehicles.length >= 400) return;
+
+    const nodes = this.graph?.spawnableNodes; // pre-filtered, always connected
+    if (!nodes || nodes.length < 2) return;
+
+    // Pick random origin near viewport (70%) or citywide (30%)
+    const useViewport = Math.random() < 0.7;
+    const bounds = this.renderer.getViewportBounds(200);
+    const viewportNodes = useViewport
+      ? nodes.filter(n => n.x > bounds.minX && n.x < bounds.maxX
+                       && n.y > bounds.minY && n.y < bounds.maxY)
+      : nodes;
+
+    const pool = viewportNodes.length >= 2 ? viewportNodes : nodes;
+    const origin = pool[Math.floor(Math.random() * pool.length)];
+    const dest   = nodes[Math.floor(Math.random() * nodes.length)];
+    if (!origin || !dest || origin.id === dest.id) return;
+
+    // Pathfind in worker — never blocks main thread
+    const route = await this.findPathAsync(origin.id, dest.id);
+    if (!route || route.length < 2) return;
+
     // Pick type
     const r = Math.random();
     let type = 'car';
@@ -286,25 +365,13 @@ export class Engine {
     else if (r < 0.2) type = 'truck';
     else if (r < 0.3) type = 'motorcycle';
 
-    let end;
-    if (type === 'emergency' && this.hospitals && this.hospitals.length > 0) {
-      const h = this.hospitals[Math.floor(Math.random() * this.hospitals.length)];
-      let minD = Infinity;
-      for (const [id, node] of this.graph.nodes) {
-        const d = (node.x - h.x)**2 + (node.y - h.y)**2;
-        if (d < minD) { minD = d; end = id; }
-      }
-    } else {
-      end = this.graph.getRandomBorderNode();
-    }
+    const v = this.vehiclePool.acquire(type, route, this.graph);
+    if (!v) { console.warn('[Spawn] Pool exhausted'); return; }
 
-    if (!start || !end || start === end) return;
-
-    const route = findPath(this.graph, start, end, blocked);
-    if (!route || route.length < 2) return;
-
-    const v = Vehicle.create(type, route, this.graph);
-
+    // Position setup
+    v.pos.x = origin.x;
+    v.pos.y = origin.y;
+    
     this.vehicles.push(v);
     this.totalSpawned++;
   }
@@ -356,7 +423,11 @@ export class Engine {
       
       const dir = v._getDirection();
       if (dir) {
-        if (v.speed <= 15) int.queues[dir]++;
+        if (v.speed <= 15) {
+          int.queues[dir]++;
+        } else {
+          int._vehiclesPassed = (int._vehiclesPassed || 0) + 1;
+        }
         int.maxWait = Math.max(int.maxWait, v.waitTime);
         int.totalWaitSeconds += v.waitTime;
         if (v.sirenActive) {
@@ -380,7 +451,7 @@ export class Engine {
           this.completedThisStep++;
         }
         this.vehicles.splice(i, 1);
-        Vehicle.free(v);
+        this.vehiclePool.release(v);
       }
     }
     for (let i = this.pedestrians.length - 1; i >= 0; i--) {
@@ -388,6 +459,9 @@ export class Engine {
     }
     for (let i = this.cyclists.length - 1; i >= 0; i--) {
       if (!this.cyclists[i].alive) this.cyclists.splice(i, 1);
+    }
+    for (let i = this.policeUnits.length - 1; i >= 0; i--) {
+      if (!this.policeUnits[i].active) this.policeUnits.splice(i, 1);
     }
   }
 
@@ -400,6 +474,12 @@ export class Engine {
     // Filter completed trips to last 60 seconds
     const windowStart = this._simTime - 60;
     this.completedTrips = this.completedTrips.filter(t => t >= windowStart);
+
+    let totalImbalance = 0;
+    for (const [, int] of this.intersections) {
+      totalImbalance += Math.abs(int.getQueueNS() - int.getQueueEW());
+    }
+    const avgImbalance = this.intersections.size > 0 ? totalImbalance / this.intersections.size : 0;
 
     if (this.onMetricsUpdate) {
       this.onMetricsUpdate({
@@ -414,18 +494,16 @@ export class Engine {
         timeOfDay: this.timeOfDay.hour,
         weather: this.weather.current,
         simSpeed: this.simSpeed,
+        spawnRate: this.spawnRate,
         intersectionCount: this.intersections.size,
+        policeCount: this.policeUnits.length,
+        avgImbalance: avgImbalance,
       });
     }
   }
 
   _render() {
     this.renderer.resize();
-    // Re-autoZoom on first proper render (when canvas has dimensions)
-    if (this._needsAutoZoom && this.renderer.width > 0) {
-      this._autoZoom();
-      this._needsAutoZoom = false;
-    }
     const skyColor = this.timeOfDay.getSkyColor();
     this.renderer.clear(skyColor);
 
@@ -451,12 +529,19 @@ export class Engine {
     this.renderer.drawPedestrians(this.pedestrians);
     // Layer 6: Cyclists
     this.renderer.drawCyclists(this.cyclists);
+    // Layer 6.5: Police
+    for (const p of this.policeUnits) p.render(this.renderer.ctx, this.timeOfDay.isNight);
     // Layer 7: Intersections + signals
     this.renderer.drawIntersections(this.intersections);
     // Layer 8: Accidents
     this.accidents.render(this.renderer.ctx);
     // Layer 9: Weather particles
     this.weather.render(this.renderer.ctx, this.renderer.width, this.renderer.height);
+    // Layer 9.5: Night ambient overlay
+    const ambientLight = this.timeOfDay.getAmbientLight();
+    this.renderer.drawNightOverlay(ambientLight);
+    // Layer 10: Minimap (screen-space overlay, always visible)
+    this.renderer.drawMinimap(this.vehicles, this.graph.bounds.maxX - this.graph.bounds.minX || 4000, this.graph.bounds.maxY - this.graph.bounds.minY || 4000);
   }
 
   // ── Public API ───────────────────────────────────────
@@ -480,6 +565,13 @@ export class Engine {
     }
     return closest;
   }
+  
+  spawnPolice(intersectionId) {
+    // Only spawn if not already active there
+    if (!this.policeUnits.some(p => p.intersectionId === intersectionId)) {
+      this.policeUnits.push(new TrafficPolice(intersectionId, this.graph));
+    }
+  }
 
   getIntersectionData(id) {
     const int = this.intersections.get(id);
@@ -502,7 +594,7 @@ export class Engine {
       pedestrianCount: this.pedestrians.length,
       cyclistCount: this.cyclists.length,
       avgWaitTime: this.avgWait.avg,
-      throughput: this.throughputHistory.avg * 10 * 60,
+      throughput: this.completedTrips.length,
       fps: this.fps,
       timeOfDay: this.timeOfDay.hour,
       weather: this.weather.current,

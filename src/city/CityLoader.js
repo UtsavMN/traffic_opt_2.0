@@ -1,53 +1,43 @@
-import { generateGridCity } from './cities/grid.js';
-import { generateMumbaiCity } from './cities/mumbai.js';
-import { loadBengaluru } from './cities/bengaluru.js';
-
-/**
- * CityLoader — Loads city definitions and scenario configurations
- */
+import { loadBengaluruArea } from './cities/bengaluru.js';
 
 export const SCENARIOS = {
-  bengaluru: {
+  bengaluru_central: {
     name: 'Bengaluru Central',
-    description: 'Real OSM road network and buildings',
-    generator: async () => await loadBengaluru(),
+    description: 'Central Bangalore Hub',
+    generator: async () => await loadBengaluruArea('central'),
     config: { spawnRate: 1.2 }
   },
-  generic_grid: {
-    name: 'Generic Grid',
-    description: '10×10 uniform grid — baseline for AI training',
-    generator: () => ({ graph: generateGridCity(10, 10, 120) }),
-    config: {}
+  bengaluru_north: {
+    name: 'Bengaluru North',
+    description: 'Northern Bangalore District',
+    generator: async () => await loadBengaluruArea('north'),
+    config: { spawnRate: 1.0 }
   },
-  mumbai: {
-    name: 'Mumbai District',
-    description: 'Irregular grid, mixed lanes, high pedestrian density',
-    generator: () => ({ graph: generateMumbaiCity() }),
-    config: { spawnRate: 1.5 }
+  bengaluru_south: {
+    name: 'Bengaluru South',
+    description: 'Southern Bangalore District',
+    generator: async () => await loadBengaluruArea('south'),
+    config: { spawnRate: 1.1 }
   },
-  rush_hour: {
-    name: 'Rush Hour',
-    description: 'Time locked 08:00–09:00, 2.5× spawn rate',
-    generator: () => ({ graph: generateGridCity(10, 10, 120) }),
-    config: { spawnRate: 2.5, lockTime: 8, timeOfDay: 8 }
+  bengaluru_east: {
+    name: 'Bengaluru East',
+    description: 'Eastern Bangalore District',
+    generator: async () => await loadBengaluruArea('east'),
+    config: { spawnRate: 1.0 }
   },
-  incident_cascade: {
-    name: 'Incident Cascade',
-    description: '3 accidents over 10 min, tests rerouting',
-    generator: () => ({ graph: generateGridCity(10, 10, 120) }),
-    config: { autoAccidents: true, accidentInterval: 120 }
-  },
-  emergency_corridor: {
-    name: 'Emergency Corridor',
-    description: 'Ambulance south→north, AI clears path',
-    generator: () => ({ graph: generateGridCity(10, 10, 120) }),
-    config: { spawnEmergency: true }
-  },
+  bengaluru_west: {
+    name: 'Bengaluru West',
+    description: 'Western Bangalore District',
+    generator: async () => await loadBengaluruArea('west'),
+    config: { spawnRate: 1.0 }
+  }
 };
 
 export async function loadScenario(scenarioId, engine) {
   const scenario = SCENARIOS[scenarioId];
-  if (!scenario) return;
+  if (!scenario) {
+    throw new Error(`Scenario '${scenarioId}' not found in SCENARIOS`);
+  }
 
   const result = await scenario.generator();
   const graph = result.graph;

@@ -4,12 +4,14 @@ import TopBar from './components/layout/TopBar.jsx';
 import Sidebar from './components/layout/Sidebar.jsx';
 import StatusBar from './components/layout/StatusBar.jsx';
 import AIBrainPanel from './components/panels/AIBrainPanel.jsx';
+import LoadingScreen from './components/LoadingScreen.jsx';
 
 export default function App() {
   const sim = useSimulation();
 
   return (
     <div className="app-layout">
+      <LoadingScreen />
       <TopBar />
       <Sidebar
         setSimSpeed={sim.setSimSpeed}

@@ -26,18 +26,42 @@ export class Intersection {
     // Traffic police
     this.policeActive = false;
     this.policeDirection = null;
+    this.policeOverrideTimer = 0;
+    // Callback for green phase tracking (set externally to decouple from React)
+    this.onGreenPhaseEnd = null;
   }
 
   update(dt) {
     if (this.policeActive) {
-      if (this.queues[this.policeDirection] === 0) {
+      this.policeOverrideTimer += dt;
+      if (this.policeOverrideTimer >= 60) {
+        // Max timer exceeded — force deactivate to prevent cross-traffic starvation
+        this.policeActive = false;
+        this.policeOverrideTimer = 0;
+      } else if (this.policeDirection && this.queues[this.policeDirection] === 0) {
         this.policeActive = false; // Queue cleared
+        this.policeOverrideTimer = 0;
       } else {
         this.trafficLight.forceGreen(this.policeDirection);
       }
     }
     
+    const prevPhase = this.trafficLight.currentPhase;
     this.trafficLight.update(dt);
+    
+    // Green Efficiency Tracking (only for active intersections)
+    if (prevPhase !== this.trafficLight.currentPhase && this.getTotalQueue() > 0) {
+      if (prevPhase === 'NS_GREEN') {
+        const hadVehicles = this.getQueueNS() > 0 || this._vehiclesPassed > 0;
+        if (this.onGreenPhaseEnd) this.onGreenPhaseEnd(hadVehicles);
+        this._vehiclesPassed = 0;
+      } else if (prevPhase === 'EW_GREEN') {
+        const hadVehicles = this.getQueueEW() > 0 || this._vehiclesPassed > 0;
+        if (this.onGreenPhaseEnd) this.onGreenPhaseEnd(hadVehicles);
+        this._vehiclesPassed = 0;
+      }
+    }
+
     // Decay AI pulse
     if (this.aiPulseActive) {
       this.aiPulseTimer -= dt;

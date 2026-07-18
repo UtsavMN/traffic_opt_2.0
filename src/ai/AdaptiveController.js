@@ -1,24 +1,27 @@
-/**
- * AdaptiveController — Rule-based traffic signal controller (Phase 1 active policy)
- * Monitors queue lengths and dynamically adjusts signal phases per intersection
- */
+import { useAIStore } from '../store/aiStore.js';
+
+const ACTIONS = [
+  'KEEP_NS_GREEN', 'SWITCH_TO_NS_GREEN', 'SWITCH_TO_EW_GREEN',
+  'EXTEND_NS_5S', 'EXTEND_EW_5S', 'EMERGENCY_OVERRIDE_NS',
+  'EMERGENCY_OVERRIDE_EW', 'PEDESTRIAN_SCRAMBLE'
+];
+
 export class AdaptiveController {
   constructor() {
-    this.evaluateInterval = 1.0; // seconds
+    this.evaluateInterval = 0.5; // evaluate every 0.5s
     this.timer = 0;
-    this.decisions = []; // log of recent decisions
+    this.decisions = [];
     this.totalDecisions = 0;
     this.totalReward = 0;
     this.rewardHistory = [];
-    this.mode = 'ADAPTIVE'; // ADAPTIVE | RL_SHADOW | RL_ACTIVE
+    this.mode = 'ADAPTIVE';
+    this.coordinator = null; // Set externally in useSimulation.js
 
-    // Adaptive parameters
-    this.minPhaseDuration = 5;
-    this.maxPhaseDuration = 30;
-    this.queueThreshold = 3;
-    this.pedestrianThreshold = 3;
+    // Queue-proportional parameters
+    this.MIN_GREEN = 5;    // 5s minimum — safety clearance
+    this.MAX_GREEN = 60;   // 60s maximum — prevent starvation
+    this.MAX_EXPECTED = 30; // vehicles — scale reference
 
-    // Callbacks
     this.onDecision = null;
   }
 
@@ -27,13 +30,26 @@ export class AdaptiveController {
     if (this.timer < this.evaluateInterval) return;
     this.timer = 0;
 
+    // Read active mode from Zustand store
+    const currentMode = useAIStore.getState().mode;
+    this.mode = currentMode;
+
     for (const [id, int] of engine.intersections) {
+      // Cooldown check
+      const now = performance.now();
+      if (int.lastEvalTime && now - int.lastEvalTime < 500) continue;
+      
+      // Ensure AI has full control by preventing TrafficLight auto-advance
+      if (int.trafficLight.greenDuration !== 9999) {
+        int.trafficLight.setGreenDuration(9999);
+      }
+
       const decision = this._evaluate(int, engine);
       if (decision) {
+        int.lastEvalTime = now;
         this.totalDecisions++;
         int.triggerAIPulse(decision.action);
 
-        // Compute simple reward
         const reward = this._computeReward(int, decision);
         this.totalReward += reward;
         this.rewardHistory.push(reward);
@@ -44,8 +60,24 @@ export class AdaptiveController {
         if (this.decisions.length > 20) this.decisions.shift();
 
         if (this.onDecision) this.onDecision(decision);
+
+        // Global bridge for metrics
+        if (typeof window !== 'undefined' && window.__zenithAI) {
+          window.__zenithAI.logDecision({
+            time: new Date().toLocaleTimeString(),
+            intersectionId: int.id,
+            action: decision.action,
+            reason: decision.reason,
+            queues: { ...int.queues },
+          });
+        }
       }
     }
+  }
+
+  _idealGreen(queueCount) {
+    if (queueCount === 0) return this.MIN_GREEN;
+    return this.MIN_GREEN + (Math.min(queueCount, this.MAX_EXPECTED) / this.MAX_EXPECTED) * (this.MAX_GREEN - this.MIN_GREEN);
   }
 
   _evaluate(int, engine) {
@@ -55,76 +87,152 @@ export class AdaptiveController {
     const timeInPhase = tl.timeInPhase;
     const phase = tl.currentPhase;
 
-    // Emergency preemption
+    // Emergency preemption (always highest priority)
     if (int.emergencyApproaching) {
       int.emergencyApproaching = false;
-      tl.emergencyOverride = true;
-      setTimeout(() => { tl.emergencyOverride = false; }, 5000);
+      const dir = (int.emergencyDir === 'N' || int.emergencyDir === 'S') ? 'NS' : 'EW';
+      tl.emergencyOverrideDir = dir;
+      tl.emergencyTimer = 5; // 5 sim-seconds
       return {
         intersectionId: int.id,
-        action: 'EMERGENCY_PREEMPT',
-        reason: 'Emergency vehicle approaching',
+        action: 'EMRG_PREEMPT',
+        reason: `Emergency vehicle approaching from ${int.emergencyDir} — ${dir} green`,
         time: Date.now(),
       };
     }
 
-    // Pedestrian phase trigger
-    if (int.pedestriansWaiting > this.pedestrianThreshold && timeInPhase > this.minPhaseDuration) {
+    // Only evaluate during green phases to allow yellow/red safety clearances to complete
+    if (phase !== 'NS_GREEN' && phase !== 'EW_GREEN') return null;
+
+    // Wait for minimum green safety clearance before any switch
+    if (timeInPhase < this.MIN_GREEN) return null;
+
+    const currentIsNS = phase === 'NS_GREEN';
+    const currentQueue = currentIsNS ? nsQ : ewQ;
+    const opposingQueue = currentIsNS ? ewQ : nsQ;
+
+    // Active Reinforcement Learning Decision Path
+    if (this.mode === 'RL_ACTIVE' && this.coordinator) {
+      const rlAgent = this.coordinator.rlAgent;
+      const state = rlAgent.encoder.encode(int, engine);
+      const actionIdx = rlAgent._selectAction(state);
+      const actionName = ACTIONS[actionIdx];
+
+      // Execute chosen action
+      this._executeRLAction(int, actionName);
+
       return {
         intersectionId: int.id,
-        action: 'TRIGGER_PED_PHASE',
-        reason: `${int.pedestriansWaiting} pedestrians waiting`,
+        action: actionName,
+        reason: `DQN RL Agent (ε = ${rlAgent.epsilon.toFixed(3)})`,
         time: Date.now(),
       };
     }
 
-    // Phase switching logic
-    if (timeInPhase < this.minPhaseDuration) return null;
-
-    if (phase === 'NS_GREEN') {
-      if ((nsQ === 0 && ewQ > 0) || ewQ > nsQ + this.queueThreshold || timeInPhase > this.maxPhaseDuration) {
-        tl.forcePhase(1); // NS_YELLOW
-        return {
-          intersectionId: int.id,
-          action: 'SWITCH_TO_EW_GREEN',
-          reason: `NS=${nsQ} EW=${ewQ}`,
-          time: Date.now(),
-        };
-      }
-    } else if (phase === 'EW_GREEN') {
-      if ((ewQ === 0 && nsQ > 0) || nsQ > ewQ + this.queueThreshold || timeInPhase > this.maxPhaseDuration) {
-        tl.forcePhase(3); // EW_YELLOW
-        return {
-          intersectionId: int.id,
-          action: 'SWITCH_TO_NS_GREEN',
-          reason: `NS=${nsQ} EW=${ewQ}`,
-          time: Date.now(),
-        };
-      }
+    // Rule 1: Switch immediately if current direction is empty AND opposing has vehicles
+    if (currentQueue === 0 && opposingQueue > 0) {
+      tl.forcePhase(currentIsNS ? 1 : 4); // transition to yellow
+      return {
+        intersectionId: int.id,
+        action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
+        reason: `Empty (0) vs opposing (${opposingQueue}) — instant switch`,
+        time: Date.now(),
+      };
     }
 
-    // Extend current phase if queue still present
-    if (timeInPhase > 10 && timeInPhase < this.maxPhaseDuration) {
-      const currentQ = (phase === 'NS_GREEN') ? nsQ : ewQ;
-      if (currentQ > 3) {
-        return {
-          intersectionId: int.id,
-          action: 'EXTEND_CURRENT_5S',
-          reason: `Queue=${currentQ}, extending`,
-          time: Date.now(),
-        };
-      }
+    // Rule 2: Switch if opposing queue is significantly larger
+    const dynamicThreshold = Math.max(3, currentQueue * 0.5);
+    if (opposingQueue > currentQueue + dynamicThreshold) {
+      tl.forcePhase(currentIsNS ? 1 : 4);
+      return {
+        intersectionId: int.id,
+        action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
+        reason: `NS=${nsQ} EW=${ewQ} — imbalance trigger`,
+        time: Date.now(),
+      };
+    }
+
+    // Rule 3: Extend if current queue is large and hasn't reached ideal green time
+    const ideal = this._idealGreen(currentQueue);
+    if (timeInPhase < ideal && currentQueue > 0) {
+      // Stay green — don't switch
+      return null;
+    }
+
+    // Rule 4: Force switch if max green reached (starvation prevention)
+    if (timeInPhase >= this.MAX_GREEN) {
+      tl.forcePhase(currentIsNS ? 1 : 4);
+      return {
+        intersectionId: int.id,
+        action: 'FORCE_SWITCH',
+        reason: `Max green (${this.MAX_GREEN}s) reached — forced switch`,
+        time: Date.now(),
+      };
+    }
+
+    // Rule 5: Switch if ideal green time passed and both queues present
+    if (timeInPhase >= ideal && opposingQueue > 0) {
+      tl.forcePhase(currentIsNS ? 1 : 4);
+      return {
+        intersectionId: int.id,
+        action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
+        reason: `Ideal green (${ideal.toFixed(1)}s) reached, NS=${nsQ} EW=${ewQ}`,
+        time: Date.now(),
+      };
     }
 
     return null;
   }
 
+  _executeRLAction(int, actionName) {
+    const tl = int.trafficLight;
+    const currentIsNS = tl.currentPhase === 'NS_GREEN';
+
+    switch (actionName) {
+      case 'SWITCH_TO_NS_GREEN':
+        if (!currentIsNS) {
+          tl.forcePhase(4); // Force EW_YELLOW to transition to NS_GREEN safely
+        }
+        break;
+      case 'SWITCH_TO_EW_GREEN':
+        if (currentIsNS) {
+          tl.forcePhase(1); // Force NS_YELLOW to transition to EW_GREEN safely
+        }
+        break;
+      case 'EXTEND_NS_5S':
+        if (currentIsNS) {
+          tl.timer = Math.max(0, tl.timer - 5); // Subtract 5s to extend green phase
+        }
+        break;
+      case 'EXTEND_EW_5S':
+        if (!currentIsNS) {
+          tl.timer = Math.max(0, tl.timer - 5); // Subtract 5s to extend green phase
+        }
+        break;
+      case 'EMERGENCY_OVERRIDE_NS':
+        tl.emergencyOverrideDir = 'NS';
+        tl.emergencyTimer = 5;
+        break;
+      case 'EMERGENCY_OVERRIDE_EW':
+        tl.emergencyOverrideDir = 'EW';
+        tl.emergencyTimer = 5;
+        break;
+      case 'PEDESTRIAN_SCRAMBLE':
+        // Safe scramble: force all vehicles to stop via ALL_RED phase
+        tl.forcePhase(currentIsNS ? 2 : 5); 
+        break;
+      case 'KEEP_NS_GREEN':
+      default:
+        // No-op: keep current state
+        break;
+    }
+  }
+
   _computeReward(int, decision) {
     const totalQ = int.getTotalQueue();
-    let reward = -totalQ * 0.3; // penalize queues
+    let reward = -totalQ * 0.3;
 
-    if (decision.action === 'EMERGENCY_PREEMPT') reward += 5;
-    else if (decision.action === 'TRIGGER_PED_PHASE') reward += 2;
+    if (decision.action === 'EMRG_PREEMPT') reward += 5;
     else if (decision.action.startsWith('SWITCH')) {
       const balance = Math.abs(int.getQueueNS() - int.getQueueEW());
       reward += (10 - balance) * 0.3;
@@ -138,3 +246,4 @@ export class AdaptiveController {
     return sum / this.rewardHistory.length;
   }
 }
+

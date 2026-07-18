@@ -1,4 +1,5 @@
 import { SIGNAL_COLORS } from './TrafficLight.js';
+import { Camera } from './Camera.js';
 
 /**
  * Renderer — All canvas draw calls, layered back-to-front
@@ -7,14 +8,15 @@ export class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
-    this.camera = { x: 0, y: 0, zoom: 1 };
+    this.camera = new Camera(canvas);
     this.overlays = {
       heatmap: false,
       aiDecisions: true,
       vehicleRoutes: false,
       pedestrianPaths: false,
-      zoneColors: true,
+      zoneColors: false,
     };
+    this.roadCaches = new Map();
   }
 
   resize() {
@@ -39,28 +41,20 @@ export class Renderer {
   }
 
   worldToScreen(wx, wy) {
-    return {
-      x: (wx - this.camera.x) * this.camera.zoom + this.width / 2,
-      y: (wy - this.camera.y) * this.camera.zoom + this.height / 2,
-    };
+    return this.camera.worldToScreen(wx, wy);
   }
 
   screenToWorld(sx, sy) {
-    return {
-      x: (sx - this.width / 2) / this.camera.zoom + this.camera.x,
-      y: (sy - this.height / 2) / this.camera.zoom + this.camera.y,
-    };
+    return this.camera.screenToWorld(sx, sy);
   }
 
   getViewportBounds(margin = 0) {
-    const w2 = this.width / 2;
-    const h2 = this.height / 2;
-    const z = this.camera.zoom;
+    const b = this.camera.worldBounds();
     return {
-      minX: this.camera.x - w2 / z - margin,
-      maxX: this.camera.x + w2 / z + margin,
-      minY: this.camera.y - h2 / z - margin,
-      maxY: this.camera.y + h2 / z + margin,
+      minX: b.minX - margin,
+      maxX: b.maxX + margin,
+      minY: b.minY - margin,
+      maxY: b.maxY + margin,
     };
   }
 
@@ -112,18 +106,149 @@ export class Renderer {
   }
 
   // ── Layer 2: Roads ───────────────────────────────────
+  // ── Layer 2: Roads ───────────────────────────────────
+  cacheRoads(graph) {
+    if (!graph) return;
+    this.roadCaches = new Map();
+
+    const minX = graph.bounds.minX;
+    const minY = graph.bounds.minY;
+    const maxX = graph.bounds.maxX;
+    const maxY = graph.bounds.maxY;
+    const width = Math.ceil(maxX - minX) || 4000;
+    const height = Math.ceil(maxY - minY) || 4000;
+
+    const lods = ['overview', 'district', 'neighborhood', 'street'];
+    const lodWidths = {
+      overview:      { highway: 3,  arterial: 1.5, local: 0 },
+      district:      { highway: 4,  arterial: 2.5, local: 1 },
+      neighborhood:  { highway: 8,  arterial: 5,   local: 3 },
+      street:        { highway: 16, arterial: 10,  local: 6 },
+    };
+    const colors = { highway: '#2A2E38', arterial: '#1E2228', local: '#171B21' };
+
+    for (const lod of lods) {
+      const cacheCanvas = document.createElement('canvas');
+      cacheCanvas.width = width;
+      cacheCanvas.height = height;
+      const ctx = cacheCanvas.getContext('2d');
+
+      const widths = lodWidths[lod];
+
+      for (const [, edge] of graph.edges) {
+        if (edge.from > edge.to) continue;
+        const from = graph.nodes.get(edge.from);
+        const to = graph.nodes.get(edge.to);
+        if (!from || !to) continue;
+
+        const baseW = widths[edge.type] || widths.local;
+        if (baseW === 0) continue;
+
+        const x1 = from.x - minX;
+        const y1 = from.y - minY;
+        const x2 = to.x - minX;
+        const y2 = to.y - minY;
+
+        // Road fill
+        ctx.strokeStyle = colors[edge.type] || colors.local;
+        ctx.lineWidth = baseW;
+        ctx.lineCap = 'butt';
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+
+        // Center line and Lane Markings (LOD)
+        if (lod === 'street') {
+          // Center line (solid yellow)
+          ctx.strokeStyle = 'rgba(255,200,0,0.5)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+          ctx.stroke();
+
+          // Lane dividers (dashed white)
+          if (edge.lanes > 1) {
+            ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+            ctx.lineWidth = 0.5;
+            ctx.setLineDash([6, 8]);
+
+            const dx = x2 - x1, dy = y2 - y1;
+            const len = Math.hypot(dx, dy);
+            if (len > 0) {
+              const px = -dy / len, py = dx / len;
+              for (let dir = -1; dir <= 1; dir += 2) {
+                for (let l = 1; l < edge.lanes; l++) {
+                  const offset = (l * (baseW / 2 / edge.lanes)) * dir;
+                  ctx.beginPath();
+                  ctx.moveTo(x1 + px * offset, y1 + py * offset);
+                  ctx.lineTo(x2 + px * offset, y2 + py * offset);
+                  ctx.stroke();
+                }
+              }
+            }
+            ctx.setLineDash([]);
+          }
+
+          // Stop lines
+          const dx = x2 - x1;
+          const dy = y2 - y1;
+          const len = Math.sqrt(dx * dx + dy * dy);
+          if (len > 30) {
+            const dirX = dx / len, dirY = dy / len;
+            const perpX = -dirY, perpY = dirX;
+
+            ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+            ctx.lineWidth = 3;
+            const offset = 15;
+
+            ctx.beginPath();
+            ctx.moveTo(x2 - dirX * offset + perpX * (baseW/2), y2 - dirY * offset + perpY * (baseW/2));
+            ctx.lineTo(x2 - dirX * offset, y2 - dirY * offset);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(x1 + dirX * offset - perpX * (baseW/2), y1 + dirY * offset - perpY * (baseW/2));
+            ctx.lineTo(x1 + dirX * offset, y1 + dirY * offset);
+            ctx.stroke();
+          }
+        }
+      }
+      this.roadCaches.set(lod, cacheCanvas);
+    }
+  }
+
   drawRoads(graph) {
     const ctx = this.ctx;
-    const widths = { highway: 32, arterial: 20, local: 12 };
-    const colors = { highway: '#2A2E38', arterial: '#1E2228', local: '#171B21' };
-    const bounds = this.getViewportBounds(200); // Generous margin for long roads
+    const detail = this.camera.getDetail();
+    const bounds = this.getViewportBounds(200);
 
+    // LOD-dependent widths
+    const lodWidths = {
+      overview:      { highway: 3,  arterial: 1.5, local: 0 },
+      district:      { highway: 4,  arterial: 2.5, local: 1 },
+      neighborhood:  { highway: 8,  arterial: 5,   local: 3 },
+      street:        { highway: 16, arterial: 10,  local: 6 },
+    };
+    const widths = lodWidths[detail] || lodWidths.neighborhood;
+    
+    // High-contrast slate-grey colors for dark mode readability
+    const colors = { 
+      highway: '#3D4452',   // Lighter slate grey for highways
+      arterial: '#2F3540',  // Medium slate grey for arterial roads
+      local: '#22262E'      // Dark slate grey for local streets (clearly visible against #0A0C0F background)
+    };
+
+    // First Pass: Draw road casing/outline (to merge intersections beautifully)
     for (const [, edge] of graph.edges) {
-      // Only draw one direction for the physical road
       if (edge.from > edge.to) continue;
       const from = graph.nodes.get(edge.from);
       const to = graph.nodes.get(edge.to);
       if (!from || !to) continue;
+
+      const baseW = widths[edge.type] || widths.local;
+      if (baseW === 0) continue;
 
       if (!this.isInsideViewport(from.x, from.y, bounds) && !this.isInsideViewport(to.x, to.y, bounds)) {
         continue;
@@ -131,52 +256,99 @@ export class Renderer {
 
       const s1 = this.worldToScreen(from.x, from.y);
       const s2 = this.worldToScreen(to.x, to.y);
-      const w = (widths[edge.type] || 12) * this.camera.zoom;
+      const w = baseW * this.camera.zoom;
+
+      ctx.strokeStyle = '#0B0C0E'; // Match background/outline
+      ctx.lineWidth = w + 2 * Math.max(1, this.camera.zoom * 0.4);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(s1.x, s1.y);
+      ctx.lineTo(s2.x, s2.y);
+      ctx.stroke();
+    }
+
+    // Second Pass: Draw road fill and detailed markings
+    for (const [, edge] of graph.edges) {
+      if (edge.from > edge.to) continue;
+      const from = graph.nodes.get(edge.from);
+      const to = graph.nodes.get(edge.to);
+      if (!from || !to) continue;
+
+      const baseW = widths[edge.type] || widths.local;
+      if (baseW === 0) continue; 
+
+      if (!this.isInsideViewport(from.x, from.y, bounds) && !this.isInsideViewport(to.x, to.y, bounds)) {
+        continue;
+      }
+
+      const s1 = this.worldToScreen(from.x, from.y);
+      const s2 = this.worldToScreen(to.x, to.y);
+      const w = baseW * this.camera.zoom;
 
       // Road fill
       ctx.strokeStyle = colors[edge.type] || colors.local;
       ctx.lineWidth = w;
-      ctx.lineCap = 'butt'; // better for intersections than round
+      ctx.lineCap = 'round'; // round makes overlapping intersections look continuous
       ctx.beginPath();
       ctx.moveTo(s1.x, s1.y);
       ctx.lineTo(s2.x, s2.y);
       ctx.stroke();
 
-      // Center line (dashed)
-      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-      ctx.lineWidth = 1 * this.camera.zoom;
-      ctx.setLineDash([6 * this.camera.zoom, 8 * this.camera.zoom]);
-      ctx.beginPath();
-      ctx.moveTo(s1.x, s1.y);
-      ctx.lineTo(s2.x, s2.y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      
-      // Stop lines at both ends (since we only iterate one direction, we do both)
-      const dx = s2.x - s1.x;
-      const dy = s2.y - s1.y;
-      const len = Math.sqrt(dx * dx + dy * dy);
-      if (len > 30 * this.camera.zoom) {
-        const dirX = dx / len;
-        const dirY = dy / len;
-        const perpX = -dirY;
-        const perpY = dirX;
-        
-        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-        ctx.lineWidth = 3 * this.camera.zoom;
-        const offset = 15 * this.camera.zoom;
-        
-        // Stop line at 's2' (approaching to)
+      // Center line and Lane Markings (LOD)
+      if (this.camera.zoom > 2.5) {
+        // Center line (solid or double yellow)
+        ctx.strokeStyle = 'rgba(255,200,0,0.5)';
+        ctx.lineWidth = 1 * this.camera.zoom;
         ctx.beginPath();
-        ctx.moveTo(s2.x - dirX * offset + perpX * (w/2), s2.y - dirY * offset + perpY * (w/2));
-        ctx.lineTo(s2.x - dirX * offset, s2.y - dirY * offset); // Only draw halfway for the right lane
+        ctx.moveTo(s1.x, s1.y);
+        ctx.lineTo(s2.x, s2.y);
         ctx.stroke();
+        
+        // Lane dividers (dashed white)
+        if (edge.lanes > 1) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+          ctx.lineWidth = 0.5 * this.camera.zoom;
+          ctx.setLineDash([6 * this.camera.zoom, 8 * this.camera.zoom]);
+          
+          const dx = s2.x - s1.x, dy = s2.y - s1.y;
+          const len = Math.hypot(dx, dy);
+          if (len > 0) {
+            const px = -dy / len, py = dx / len;
+            for (let dir = -1; dir <= 1; dir += 2) {
+              for (let l = 1; l < edge.lanes; l++) {
+                const offset = (l * (w / 2 / edge.lanes)) * dir;
+                ctx.beginPath();
+                ctx.moveTo(s1.x + px * offset, s1.y + py * offset);
+                ctx.lineTo(s2.x + px * offset, s2.y + py * offset);
+                ctx.stroke();
+              }
+            }
+          }
+          ctx.setLineDash([]);
+        }
+        
+        // Stop lines
+        const dx = s2.x - s1.x;
+        const dy = s2.y - s1.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len > 30 * this.camera.zoom) {
+          const dirX = dx / len, dirY = dy / len;
+          const perpX = -dirY, perpY = dirX;
+          
+          ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+          ctx.lineWidth = 3 * this.camera.zoom;
+          const offset = 15 * this.camera.zoom;
+          
+          ctx.beginPath();
+          ctx.moveTo(s2.x - dirX * offset + perpX * (w/2), s2.y - dirY * offset + perpY * (w/2));
+          ctx.lineTo(s2.x - dirX * offset, s2.y - dirY * offset);
+          ctx.stroke();
 
-        // Stop line at 's1' (approaching from)
-        ctx.beginPath();
-        ctx.moveTo(s1.x + dirX * offset - perpX * (w/2), s1.y + dirY * offset - perpY * (w/2));
-        ctx.lineTo(s1.x + dirX * offset, s1.y + dirY * offset);
-        ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(s1.x + dirX * offset - perpX * (w/2), s1.y + dirY * offset - perpY * (w/2));
+          ctx.lineTo(s1.x + dirX * offset, s1.y + dirY * offset);
+          ctx.stroke();
+        }
       }
 
       // Blocked indicator
@@ -199,50 +371,64 @@ export class Renderer {
     for (const [, int] of intersections) {
       if (!this.isInsideViewport(int.x, int.y, bounds)) continue;
       const s = this.worldToScreen(int.x, int.y);
-      const r = 6 * this.camera.zoom;
 
-      // Intersection pad
-      ctx.fillStyle = '#1A1E26';
-      ctx.fillRect(s.x - r * 1.5, s.y - r * 1.5, r * 3, r * 3);
-
-      // Traffic lights — 4 signal heads + crosswalks
+      // Traffic lights — 4 signal heads
       const tl = int.trafficLight;
-      const offset = 18 * this.camera.zoom; // Push out past crosswalk
-      const isNight = this.camera.zoom > 0; // Quick way to pass night mode? We'll just pass false for now, or use world time later
-
+      
       ctx.save();
       ctx.translate(s.x, s.y);
 
-      // Draw crosswalks (4 approaches)
-      ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-      ctx.lineWidth = 2 * this.camera.zoom;
-      ctx.setLineDash([3 * this.camera.zoom, 3 * this.camera.zoom]);
-      const cwOffset = 12 * this.camera.zoom;
-      const cwWidth = 16 * this.camera.zoom;
-      // N crosswalk
-      ctx.beginPath(); ctx.moveTo(-cwWidth/2, -cwOffset); ctx.lineTo(cwWidth/2, -cwOffset); ctx.stroke();
-      // S crosswalk
-      ctx.beginPath(); ctx.moveTo(-cwWidth/2, cwOffset); ctx.lineTo(cwWidth/2, cwOffset); ctx.stroke();
-      // E crosswalk
-      ctx.beginPath(); ctx.moveTo(cwOffset, -cwWidth/2); ctx.lineTo(cwOffset, cwWidth/2); ctx.stroke();
-      // W crosswalk
-      ctx.beginPath(); ctx.moveTo(-cwOffset, -cwWidth/2); ctx.lineTo(-cwOffset, cwWidth/2); ctx.stroke();
-      ctx.setLineDash([]);
+      // Determine the active color of the intersection
+      const isGreen = tl.currentPhase.includes('GREEN');
+      const isYellow = tl.currentPhase.includes('YELLOW');
+      const hexColor = isGreen ? '#00E87A' : (isYellow ? '#FFB400' : '#FF3B5C');
 
-      // North signal (faces north traffic)
-      this._drawSignalHead(ctx, -offset, offset, tl.getColorNS(), 0);
-      // South signal
-      this._drawSignalHead(ctx, offset, -offset, tl.getColorNS(), Math.PI);
-      // East signal
-      this._drawSignalHead(ctx, -offset, -offset, tl.getColorEW(), Math.PI/2);
-      // West signal
-      this._drawSignalHead(ctx, offset, offset, tl.getColorEW(), -Math.PI/2);
+      if (this.camera.zoom > 2.5) {
+        // Draw 4 signal heads facing approaches (offset from center so road remains fully visible)
+        const z = this.camera.zoom;
+        const dist = 12 * z;
+        
+        const drawSignal = (color, angle) => {
+          ctx.save();
+          ctx.rotate(angle);
+          ctx.translate(0, -dist);
+          
+          // Signal box
+          ctx.fillStyle = '#1A1A1A';
+          ctx.fillRect(-2 * z, -5 * z, 4 * z, 10 * z);
+          
+          // Lights
+          ctx.fillStyle = color === 'RED' ? '#FF3B5C' : '#330000';
+          ctx.beginPath(); ctx.arc(0, -3 * z, 1.2 * z, 0, Math.PI*2); ctx.fill();
+          ctx.fillStyle = color === 'YELLOW' ? '#FFB400' : '#333300';
+          ctx.beginPath(); ctx.arc(0, 0, 1.2 * z, 0, Math.PI*2); ctx.fill();
+          ctx.fillStyle = color === 'GREEN' ? '#00E87A' : '#003300';
+          ctx.beginPath(); ctx.arc(0, 3 * z, 1.2 * z, 0, Math.PI*2); ctx.fill();
+          
+          ctx.restore();
+        };
+
+        const cNS = tl.getColorNS();
+        const cEW = tl.getColorEW();
+        
+        drawSignal(cNS, 0); // North facing
+        drawSignal(cNS, Math.PI); // South facing
+        drawSignal(cEW, Math.PI/2); // East facing
+        drawSignal(cEW, -Math.PI/2); // West facing
+      } else {
+        // Draw a clean, hollow ring for the intersection so it doesn't block the road view
+        ctx.strokeStyle = hexColor;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 2.5 * this.camera.zoom, 0, Math.PI * 2);
+        ctx.stroke();
+      }
 
       // Traffic Police
       if (int.policeActive) {
         ctx.fillStyle = '#3D9EFF'; // Police blue
         ctx.beginPath();
-        ctx.arc(0, 0, 4 * this.camera.zoom, 0, Math.PI * 2);
+        ctx.arc(0, 0, 5 * this.camera.zoom, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = '#FFFFFF';
         ctx.lineWidth = 1.5 * this.camera.zoom;
@@ -260,13 +446,13 @@ export class Renderer {
         alpha = Math.max(0, Math.min(1, alpha)) * 0.6;
 
         ctx.strokeStyle = `rgba(155,111,255,${alpha})`;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 1 * this.camera.zoom;
         ctx.beginPath();
-        ctx.arc(s.x, s.y, 18 * this.camera.zoom, 0, Math.PI * 2);
+        ctx.arc(s.x, s.y, 8 * this.camera.zoom, 0, Math.PI * 2);
         ctx.stroke();
 
         // Inner glow
-        const grad = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, 20 * this.camera.zoom);
+        const grad = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, 10 * this.camera.zoom);
         grad.addColorStop(0, `rgba(155,111,255,${alpha * 0.2})`);
         grad.addColorStop(1, 'rgba(155,111,255,0)');
         ctx.fillStyle = grad;
@@ -275,47 +461,7 @@ export class Renderer {
     }
   }
 
-  _drawSignalHead(ctx, x, y, colorName, angle) {
-    const z = this.camera.zoom;
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(angle);
 
-    // Housing: 8x20px
-    const w = 8 * z;
-    const h = 20 * z;
-    
-    ctx.fillStyle = '#1A1E26'; // dark gray
-    ctx.beginPath();
-    ctx.roundRect(-w/2, -h/2, w, h, 2 * z);
-    ctx.fill();
-
-    // Night rim light
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-    ctx.lineWidth = 1 * z;
-    ctx.stroke();
-
-    const drawBulb = (yPos, cName, hexColor) => {
-      const active = colorName === cName;
-      ctx.fillStyle = active ? hexColor : 'rgba(20,20,20,0.8)';
-      ctx.beginPath();
-      ctx.arc(0, yPos, 2.5 * z, 0, Math.PI * 2);
-      ctx.fill();
-      
-      if (active) {
-        ctx.fillStyle = hexColor.replace(')', ',0.3)').replace('rgb', 'rgba').replace('#FF3B5C', 'rgba(255,59,92,0.3)').replace('#FFB400', 'rgba(255,180,0,0.3)').replace('#00E87A', 'rgba(0,232,122,0.3)');
-        ctx.beginPath();
-        ctx.arc(0, yPos, 4.5 * z, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    };
-
-    drawBulb(-h/2 + 3.5*z, 'RED', '#FF3B5C');
-    drawBulb(0, 'YELLOW', '#FFB400');
-    drawBulb(h/2 - 3.5*z, 'GREEN', '#00E87A');
-
-    ctx.restore();
-  }
 
   // ── Layer 3.5: Ambulance Routes ──────────────────────
   drawAmbulanceRoutes(vehicles, graph) {
@@ -364,6 +510,10 @@ export class Renderer {
   drawVehicles(vehicles, isNight) {
     const ctx = this.ctx;
     const bounds = this.getViewportBounds(50);
+    const detail = this.camera.getDetail();
+
+    // At overview zoom, skip vehicles entirely — too small to see
+    if (detail === 'overview') return;
 
     for (const v of vehicles) {
       if (!v.alive) continue;
@@ -371,6 +521,28 @@ export class Renderer {
 
       const s = this.worldToScreen(v.pos.x, v.pos.y);
       const z = this.camera.zoom;
+
+      // District zoom: simple 2px colored dots
+      if (detail === 'district') {
+        ctx.fillStyle = v.type === 'emergency' ? '#FF3B5C' : v.color;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, 2, 0, Math.PI * 2);
+        ctx.fill();
+        continue;
+      }
+
+      // Neighborhood zoom: small 6×3px rotated rects
+      if (detail === 'neighborhood') {
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        ctx.rotate(v.heading);
+        ctx.fillStyle = v.type === 'emergency' ? '#FF3B5C' : v.color;
+        ctx.fillRect(-3, -1.5, 6, 3);
+        ctx.restore();
+        continue;
+      }
+
+      // Street zoom: full detail (existing code below)
 
       ctx.save();
       ctx.translate(s.x, s.y);
@@ -444,7 +616,8 @@ export class Renderer {
         ctx.fillStyle = Date.now() % 400 < 200
           ? 'rgba(255,59,92,0.15)' : 'rgba(61,158,255,0.15)';
         ctx.beginPath();
-        ctx.arc(0, 0, 20 * z, 0, Math.PI * 2);
+        const sirenRadius = Math.min(30, 20 * z);
+        ctx.arc(0, 0, sirenRadius, 0, Math.PI * 2);
         ctx.fill();
         
         // Forward cone for siren
@@ -535,18 +708,22 @@ export class Renderer {
 
   // ── Crosswalk Markings ───────────────────────────────
   drawCrosswalks(graph) {
+    // Only render crosswalks at street zoom
+    if (this.camera.getDetail() !== 'street') return;
+
     const ctx = this.ctx;
+    const bounds = this.getViewportBounds(50);
+
     for (const [, node] of graph.nodes) {
+      if (!this.isInsideViewport(node.x, node.y, bounds)) continue;
       const s = this.worldToScreen(node.x, node.y);
       const z = this.camera.zoom;
       const size = 10 * z;
 
       ctx.strokeStyle = 'rgba(255,255,255,0.08)';
       ctx.lineWidth = 1.5 * z;
-      // Draw crosswalk stripes around intersection
       for (let i = -3; i <= 3; i++) {
         const offset = i * 2.5 * z;
-        // Horizontal crosswalks (north and south)
         ctx.beginPath();
         ctx.moveTo(s.x + offset, s.y - size);
         ctx.lineTo(s.x + offset, s.y - size - 4 * z);
@@ -558,4 +735,73 @@ export class Renderer {
       }
     }
   }
+
+  // ── Minimap ─────────────────────────────────────────
+  drawMinimap(vehicles, worldW, worldH) {
+    const ctx = this.ctx;
+    const M = { x: this.width - 175, y: this.height - 120, w: 155, h: 105 };
+    const sx = M.w / worldW, sy = M.h / worldH;
+
+    // Background
+    ctx.fillStyle = 'rgba(10,12,15,0.88)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(M.x - 2, M.y - 2, M.w + 4, M.h + 4, 6);
+    ctx.fill();
+    ctx.stroke();
+
+    // Vehicle dots
+    for (const v of vehicles) {
+      if (!v.alive) continue;
+      ctx.fillStyle = v.type === 'emergency' ? '#FF3B5C' : '#3D9EFF';
+      ctx.beginPath();
+      ctx.arc(M.x + v.pos.x * sx, M.y + v.pos.y * sy, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Camera viewport rectangle
+    const b = this.camera.worldBounds();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(
+      M.x + b.minX * sx,
+      M.y + b.minY * sy,
+      (b.maxX - b.minX) * sx,
+      (b.maxY - b.minY) * sy
+    );
+
+    // Label
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.font = '9px monospace';
+    ctx.fillText('MINIMAP', M.x + 4, M.y + 10);
+  }
+
+  // ── Layer 9.5: Night Overlay ──────────────────────────
+  drawNightOverlay(ambientLight) {
+    if (ambientLight >= 0.95) return; // Full daylight — skip
+
+    const ctx = this.ctx;
+    const darkness = 1 - ambientLight;
+
+    // Dark blue-tinted overlay
+    ctx.save();
+    ctx.globalAlpha = darkness * 0.55; // Max 55% opacity at full darkness
+    ctx.fillStyle = '#050815';
+    ctx.fillRect(0, 0, this.width, this.height);
+    ctx.restore();
+
+    // Subtle vignette at very dark hours
+    if (darkness > 0.6) {
+      const grd = ctx.createRadialGradient(
+        this.width / 2, this.height / 2, this.width * 0.25,
+        this.width / 2, this.height / 2, this.width * 0.75
+      );
+      grd.addColorStop(0, 'rgba(0,0,0,0)');
+      grd.addColorStop(1, `rgba(0,0,0,${(darkness - 0.6) * 0.4})`);
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, this.width, this.height);
+    }
+  }
 }
+

@@ -1,65 +1,42 @@
+import { MinHeap } from './MinHeap.js';
+
 /**
- * A* Pathfinding on CityGraph
+ * A* Pathfinding on CityGraph using MinHeap
  */
 export function findPath(graph, startId, endId, blockedEdges = new Set()) {
-  if (startId === endId) return [startId];
-  
-  const openSet = new Set([startId]);
+  if (!graph.nodes.has(startId) || !graph.nodes.has(endId)) return null;
+  const open = new MinHeap();
+  const gScore = new Map([[startId, 0]]);
   const cameFrom = new Map();
-  const gScore = new Map();
-  const fScore = new Map();
+  const h = (id) => {
+    const a = graph.nodes.get(id), b = graph.nodes.get(endId);
+    return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+  };
+  open.push({ id: startId, f: h(startId) });
   
-  gScore.set(startId, 0);
-  const startNode = graph.nodes.get(startId);
-  const endNode = graph.nodes.get(endId);
-  if (!startNode || !endNode) return null;
-  
-  fScore.set(startId, heuristic(startNode, endNode));
-
-  while (openSet.size > 0) {
-    let current = null;
-    let bestF = Infinity;
-    for (const id of openSet) {
-      const f = fScore.get(id) ?? Infinity;
-      if (f < bestF) { bestF = f; current = id; }
+  while (open.size > 0) {
+    const { id: cur } = open.pop();
+    if (cur === endId) {
+      const path = [];
+      let c = cur;
+      while (c) { path.unshift(c); c = cameFrom.get(c); }
+      return path;
     }
     
-    if (current === endId) return reconstructPath(cameFrom, current);
-    
-    openSet.delete(current);
-    const neighbors = graph.getNeighbors(current);
-    
-    for (const neighborId of neighbors) {
-      const edgeKey = `${current}->${neighborId}`;
-      if (blockedEdges.has(edgeKey)) continue;
+    for (const nid of graph.getNeighbors(cur)) {
+      const edgeKey = `${cur}->${nid}`;
+      if (blockedEdges && blockedEdges.has(edgeKey)) continue;
       
-      const edge = graph.getEdge(current, neighborId);
+      const edge = graph.getEdge(cur, nid);
       if (!edge) continue;
       
-      const cost = edge.length / (edge.speedLimit || 60);
-      const tentG = (gScore.get(current) ?? Infinity) + cost;
-      
-      if (tentG < (gScore.get(neighborId) ?? Infinity)) {
-        cameFrom.set(neighborId, current);
-        gScore.set(neighborId, tentG);
-        const neighborNode = graph.nodes.get(neighborId);
-        fScore.set(neighborId, tentG + heuristic(neighborNode, endNode));
-        openSet.add(neighborId);
+      const g = (gScore.get(cur) || 0) + edge.length;
+      if (g < (gScore.get(nid) ?? Infinity)) {
+        cameFrom.set(nid, cur);
+        gScore.set(nid, g);
+        open.push({ id: nid, f: g + h(nid) });
       }
     }
   }
-  return null; // no path found
-}
-
-function heuristic(a, b) {
-  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-}
-
-function reconstructPath(cameFrom, current) {
-  const path = [current];
-  while (cameFrom.has(current)) {
-    current = cameFrom.get(current);
-    path.unshift(current);
-  }
-  return path;
+  return null;
 }

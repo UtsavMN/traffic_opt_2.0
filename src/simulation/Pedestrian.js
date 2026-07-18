@@ -23,7 +23,7 @@ export class Pedestrian {
     this.radius = 3;
   }
 
-  update(dt, intersections) {
+  update(dt, intersections, intersectionGrid) {
     if (!this.alive) return;
     this.animFrame += dt * 8;
 
@@ -36,7 +36,25 @@ export class Pedestrian {
       this.pos = this.pos.add(dir.mult(this.walkSpeed * dt));
 
       // Check if near an intersection (need to cross)
-      if (intersections) {
+      if (intersectionGrid) {
+        const nearby = intersectionGrid.query(this.pos.x, this.pos.y, 30);
+        for (const entry of nearby) {
+          const int = entry.intersection;
+          const dist = Math.sqrt((this.pos.x - int.x) ** 2 + (this.pos.y - int.y) ** 2);
+          if (dist < 30 && dist > 5) {
+            this.nearIntersection = int;
+            const dir2 = this._getCrossingDirection(int);
+            if (dir2 && !int.trafficLight.canPass(dir2)) {
+              this.state = 'waiting_at_crossing';
+              int.pedestriansWaiting++;
+            } else {
+              this.state = 'crossing';
+              this.crossingProgress = 0;
+            }
+            break;
+          }
+        }
+      } else if (intersections) {
         for (const [, int] of intersections) {
           const dist = Math.sqrt((this.pos.x - int.x) ** 2 + (this.pos.y - int.y) ** 2);
           if (dist < 30 && dist > 5) {

@@ -4,10 +4,10 @@ export const useUIStore = create((set) => ({
   selectedIntersection: null,
   overlays: {
     heatmap: false,
-    aiDecisions: true,
+    aiDecisions: false,
     vehicleRoutes: false,
     pedestrianPaths: false,
-    zoneColors: true,
+    zoneColors: false,
   },
 
   selectIntersection: (id) => set({ selectedIntersection: id }),

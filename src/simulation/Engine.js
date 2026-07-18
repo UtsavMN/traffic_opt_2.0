@@ -253,10 +253,15 @@ export class Engine {
     if (this.densityTimer > 0.5) {
       this.densityTimer = 0;
       for (const [, edge] of this.graph.edges) edge.density = 0;
+      
+      const pcuWeights = { car: 1.0, bus: 3.0, truck: 2.5, motorcycle: 0.4, emergency: 1.2 };
       for (const v of this.vehicles) {
-        if (v.currentEdgeId) {
+        if (v.alive && v.currentEdgeId) {
           const e = this.graph.edges.get(v.currentEdgeId);
-          if (e) e.density++;
+          if (e) {
+            const pcu = pcuWeights[v.type] || 1.0;
+            e.density += pcu;
+          }
         }
       }
     }
@@ -357,13 +362,14 @@ export class Engine {
     const route = await this.findPathAsync(origin.id, dest.id);
     if (!route || route.length < 2) return;
 
-    // Pick type
+    // Pick type based on realistic Indian traffic distribution
     const r = Math.random();
     let type = 'car';
-    if (r < 0.05) type = 'emergency';
-    else if (r < 0.12) type = 'bus';
-    else if (r < 0.2) type = 'truck';
-    else if (r < 0.3) type = 'motorcycle';
+    if (r < 0.05) type = 'emergency'; // 5%
+    else if (r < 0.17) type = 'bus';       // 12%
+    else if (r < 0.27) type = 'truck';     // 10%
+    else if (r < 0.42) type = 'motorcycle';// 15%
+    else type = 'car';                     // 58%
 
     const v = this.vehiclePool.acquire(type, route, this.graph);
     if (!v) { console.warn('[Spawn] Pool exhausted'); return; }

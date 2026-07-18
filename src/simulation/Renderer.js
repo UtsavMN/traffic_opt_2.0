@@ -1,5 +1,6 @@
 import { SIGNAL_COLORS } from './TrafficLight.js';
 import { Camera } from './Camera.js';
+import { LANE_WIDTH_PX } from '../constants.js';
 
 /**
  * Renderer — All canvas draw calls, layered back-to-front
@@ -224,15 +225,6 @@ export class Renderer {
     const detail = this.camera.getDetail();
     const bounds = this.getViewportBounds(200);
 
-    // LOD-dependent widths
-    const lodWidths = {
-      overview:      { highway: 3,  arterial: 1.5, local: 0 },
-      district:      { highway: 4,  arterial: 2.5, local: 1 },
-      neighborhood:  { highway: 8,  arterial: 5,   local: 3 },
-      street:        { highway: 16, arterial: 10,  local: 6 },
-    };
-    const widths = lodWidths[detail] || lodWidths.neighborhood;
-    
     // High-contrast slate-grey colors for dark mode readability
     const colors = { 
       highway: '#3D4452',   // Lighter slate grey for highways
@@ -247,8 +239,7 @@ export class Renderer {
       const to = graph.nodes.get(edge.to);
       if (!from || !to) continue;
 
-      const baseW = widths[edge.type] || widths.local;
-      if (baseW === 0) continue;
+      if (detail === 'overview' && edge.type === 'local') continue; // Skip local roads at overview zoom
 
       if (!this.isInsideViewport(from.x, from.y, bounds) && !this.isInsideViewport(to.x, to.y, bounds)) {
         continue;
@@ -256,6 +247,14 @@ export class Renderer {
 
       const s1 = this.worldToScreen(from.x, from.y);
       const s2 = this.worldToScreen(to.x, to.y);
+
+      // Determine physical scaled width
+      let baseW = edge.lanes * LANE_WIDTH_PX();
+      if (detail === 'overview') {
+        baseW = edge.type === 'highway' ? 3 / this.camera.zoom : 1.5 / this.camera.zoom;
+      } else if (detail === 'district') {
+        baseW = Math.max(baseW, (edge.type === 'local' ? 1.2 : 2.5) / this.camera.zoom);
+      }
       const w = baseW * this.camera.zoom;
 
       ctx.strokeStyle = '#0B0C0E'; // Match background/outline
@@ -274,8 +273,7 @@ export class Renderer {
       const to = graph.nodes.get(edge.to);
       if (!from || !to) continue;
 
-      const baseW = widths[edge.type] || widths.local;
-      if (baseW === 0) continue; 
+      if (detail === 'overview' && edge.type === 'local') continue;
 
       if (!this.isInsideViewport(from.x, from.y, bounds) && !this.isInsideViewport(to.x, to.y, bounds)) {
         continue;
@@ -283,6 +281,14 @@ export class Renderer {
 
       const s1 = this.worldToScreen(from.x, from.y);
       const s2 = this.worldToScreen(to.x, to.y);
+
+      // Determine physical scaled width
+      let baseW = edge.lanes * LANE_WIDTH_PX();
+      if (detail === 'overview') {
+        baseW = edge.type === 'highway' ? 3 / this.camera.zoom : 1.5 / this.camera.zoom;
+      } else if (detail === 'district') {
+        baseW = Math.max(baseW, (edge.type === 'local' ? 1.2 : 2.5) / this.camera.zoom);
+      }
       const w = baseW * this.camera.zoom;
 
       // Road fill
@@ -418,7 +424,7 @@ export class Renderer {
       } else {
         // Draw a clean, hollow ring for the intersection so it doesn't block the road view
         ctx.strokeStyle = hexColor;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.arc(0, 0, 2.5 * this.camera.zoom, 0, Math.PI * 2);
         ctx.stroke();
@@ -531,13 +537,15 @@ export class Renderer {
         continue;
       }
 
-      // Neighborhood zoom: small 6×3px rotated rects
+      // Neighborhood zoom: scaled rotated rects based on physical vehicle length/width
       if (detail === 'neighborhood') {
         ctx.save();
         ctx.translate(s.x, s.y);
         ctx.rotate(v.heading);
         ctx.fillStyle = v.type === 'emergency' ? '#FF3B5C' : v.color;
-        ctx.fillRect(-3, -1.5, 6, 3);
+        const l = v.length * z * 0.5;
+        const w = v.width * z * 0.5;
+        ctx.fillRect(-l, -w, l * 2, w * 2);
         ctx.restore();
         continue;
       }
@@ -581,10 +589,14 @@ export class Renderer {
         ctx.fillRect(-2*z, -4*z, 4*z, 8*z);
         ctx.fillRect(-4*z, -2*z, 8*z, 4*z);
         
-        // Light bar
-        const blinkPhase = (Date.now() % 250) < 125;
-        ctx.fillStyle = blinkPhase ? '#FF3B5C' : '#3D9EFF';
+        // Alternating red/blue light bar at 4Hz
+        const flashPhase = (Date.now() % 500 < 250);
+        ctx.fillStyle = flashPhase ? '#FF3B5C' : '#3D9EFF';
         ctx.fillRect(l - 3*z, -w + 1*z, 2*z, w * 2 - 2*z);
+
+        // Blinking strobe light on rear roof
+        ctx.fillStyle = flashPhase ? '#3D9EFF' : '#FF3B5C';
+        ctx.fillRect(-l + 1*z, -2*z, 1.5*z, 4*z);
       }
 
       // Brake / Tail lights
@@ -644,11 +656,18 @@ export class Renderer {
       
       const s = this.worldToScreen(p.pos.x, p.pos.y);
       const r = p.radius * this.camera.zoom;
-      const bobble = Math.sin(p.animFrame) * 0.5;
+      
+      // Dynamic bob and sway animation gated by movement
+      let bob = 0;
+      let sway = 0;
+      if (p.state === 'walking' || p.state === 'crossing' || p.state === 'jaywalking') {
+        bob = Math.sin(p.animFrame) * 0.8 * this.camera.zoom;
+        sway = Math.cos(p.animFrame * 0.7) * 0.5 * this.camera.zoom;
+      }
 
       ctx.fillStyle = p.state === 'jaywalking' ? '#FF3B5C' : p.color;
       ctx.beginPath();
-      ctx.arc(s.x, s.y + bobble, r, 0, Math.PI * 2);
+      ctx.arc(s.x + sway, s.y + bob, r, 0, Math.PI * 2);
       ctx.fill();
 
       if (p.state === 'waiting_at_crossing') {

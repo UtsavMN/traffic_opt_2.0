@@ -24,13 +24,14 @@ export async function renderBuildingsToBitmap(buildingsGeoJson, transform, width
   const buildings = buildingsGeoJson.features.filter(f => f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon'));
 
   // Define styles
+  // High-contrast modern dark-mode building styles
   const styles = {
-    residential: { fill: '#16181E', stroke: 'rgba(255,255,255,0.07)' },
-    commercial: { fill: '#1C2028', stroke: 'rgba(255,255,255,0.1)' },
-    apartments: { fill: '#191C23', stroke: 'rgba(255,255,255,0.08)' },
-    hospital: { fill: '#16181E', stroke: 'rgba(61,158,255,0.25)' },
-    school: { fill: '#1A1C20', stroke: 'rgba(255,180,0,0.15)' },
-    default: { fill: '#16181E', stroke: 'rgba(255,255,255,0.05)' }
+    residential: { fill: '#1B1D25', stroke: 'rgba(255,255,255,0.14)' },
+    commercial: { fill: '#222630', stroke: 'rgba(255,255,255,0.18)' },
+    apartments: { fill: '#1D212A', stroke: 'rgba(255,255,255,0.14)' },
+    hospital: { fill: '#1A2135', stroke: 'rgba(61,158,255,0.35)' },
+    school: { fill: '#25211B', stroke: 'rgba(255,180,0,0.25)' },
+    default: { fill: '#1B1D25', stroke: 'rgba(255,255,255,0.12)' }
   };
 
   for (const b of buildings) {
@@ -45,7 +46,7 @@ export async function renderBuildingsToBitmap(buildingsGeoJson, transform, width
 
     ctx.fillStyle = style.fill;
     ctx.strokeStyle = style.stroke;
-    ctx.lineWidth = 0.5;
+    ctx.lineWidth = 1.0;
 
     ctx.beginPath();
     

@@ -26,6 +26,12 @@ export class AdaptiveController {
   }
 
   update(dt, engine) {
+    // Decrement simulation-time based cooldowns per intersection
+    for (const [, int] of engine.intersections) {
+      if (int.aiCooldown === undefined) int.aiCooldown = 0;
+      if (int.aiCooldown > 0) int.aiCooldown -= dt;
+    }
+
     this.timer += dt;
     if (this.timer < this.evaluateInterval) return;
     this.timer = 0;
@@ -35,9 +41,8 @@ export class AdaptiveController {
     this.mode = currentMode;
 
     for (const [id, int] of engine.intersections) {
-      // Cooldown check
-      const now = performance.now();
-      if (int.lastEvalTime && now - int.lastEvalTime < 500) continue;
+      // Safety simulation-time cooldown to prevent rapid evaluations
+      if (int.aiCooldown > 0) continue;
       
       // Ensure AI has full control by preventing TrafficLight auto-advance
       if (int.trafficLight.greenDuration !== 9999) {
@@ -46,11 +51,11 @@ export class AdaptiveController {
 
       const decision = this._evaluate(int, engine);
       if (decision) {
-        int.lastEvalTime = now;
+        int.aiCooldown = 3.0; // Debounce next evaluation for 3.0s simulation seconds
         this.totalDecisions++;
         int.triggerAIPulse(decision.action);
 
-        const reward = this._computeReward(int, decision);
+        const reward = this._computeReward(int, decision, engine.completedThisStep || 0);
         this.totalReward += reward;
         this.rewardHistory.push(reward);
         if (this.rewardHistory.length > 500) this.rewardHistory.shift();
@@ -228,9 +233,21 @@ export class AdaptiveController {
     }
   }
 
-  _computeReward(int, decision) {
+  _computeReward(int, decision, completedThisStep = 0) {
     const totalQ = int.getTotalQueue();
-    let reward = -totalQ * 0.3;
+    const waitSeconds = int.totalWaitSeconds || 0;
+    
+    // Base penalty for queue size and delays
+    let reward = -(totalQ * 0.3) - (waitSeconds * 0.05);
+
+    // Throughput reward (incentivizes clearing vehicles)
+    reward += completedThisStep * 0.8;
+
+    // Starvation penalty (non-linear escalation after 30 seconds of red light)
+    const tl = int.trafficLight;
+    const starvationNS = tl.redDurationNS > 30 ? Math.pow(tl.redDurationNS - 30, 1.2) * 0.15 : 0;
+    const starvationEW = tl.redDurationEW > 30 ? Math.pow(tl.redDurationEW - 30, 1.2) * 0.15 : 0;
+    reward -= (starvationNS + starvationEW);
 
     if (decision.action === 'EMRG_PREEMPT') reward += 5;
     else if (decision.action.startsWith('SWITCH')) {

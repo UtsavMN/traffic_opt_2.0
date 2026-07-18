@@ -16,6 +16,10 @@ export class TrafficLight {
     this.lastSwitchTime = 0;
     this.emergencyOverrideDir = null; // 'NS', 'EW', or null
     this.emergencyTimer = 0;
+    
+    // Starvation tracking durations
+    this.redDurationNS = 0;
+    this.redDurationEW = 0;
   }
 
   get currentPhase() { return PHASES[this.phase]; }
@@ -35,7 +39,21 @@ export class TrafficLight {
       }
       return;
     }
+    
     this.timer += dt;
+
+    // Track red light duration for starvation calculations
+    if (this.phase === 0 || this.phase === 1) { // NS_GREEN, NS_YELLOW (EW is red)
+      this.redDurationNS = 0;
+      this.redDurationEW += dt;
+    } else if (this.phase === 3 || this.phase === 4) { // EW_GREEN, EW_YELLOW (NS is red)
+      this.redDurationEW = 0;
+      this.redDurationNS += dt;
+    } else { // ALL_RED phases (both NS and EW are red)
+      this.redDurationNS += dt;
+      this.redDurationEW += dt;
+    }
+
     if (this.timer >= this.phaseDuration) {
       this.advancePhase();
     }

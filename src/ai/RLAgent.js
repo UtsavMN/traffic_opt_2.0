@@ -24,9 +24,17 @@ export class RLAgent {
     this.trainingSteps = 0;
     this.shadowMode = true;
 
-    // Simple Q-table approximation (for shadow mode display)
-    // In production, this would be a neural network
-    this.qTable = new Map();
+    // Linear Function Approximator weights (8 actions x 22 state dimensions)
+    const stateDim = 22;
+    this.weights = Array.from({ length: this.actionCount }, () => {
+      const arr = new Float32Array(stateDim);
+      for (let i = 0; i < stateDim; i++) {
+        // Small random initial weights
+        arr[i] = (Math.random() - 0.5) * 0.05;
+      }
+      return arr;
+    });
+    this.biases = new Float32Array(this.actionCount);
 
     // Per-intersection state tracking
     this.prevStates = new Map();
@@ -61,7 +69,7 @@ export class RLAgent {
       this.replay.push(prevState, prevAction, reward, state, false);
     }
 
-    // Choose action (epsilon-greedy, but don't execute in shadow mode)
+    // Choose action (epsilon-greedy)
     const action = this._selectAction(state);
     this.prevStates.set(intersectionId, state);
     this.prevActions.set(intersectionId, action);
@@ -83,34 +91,38 @@ export class RLAgent {
   }
 
   _getQValues(state) {
-    // Simple tabular approximation using state hash
-    const key = this._hashState(state);
-    if (!this.qTable.has(key)) {
-      this.qTable.set(key, new Float32Array(this.actionCount));
+    const qvals = new Float32Array(this.actionCount);
+    for (let a = 0; a < this.actionCount; a++) {
+      let q = this.biases[a];
+      const w = this.weights[a];
+      for (let i = 0; i < state.length; i++) {
+        q += w[i] * state[i];
+      }
+      qvals[a] = q;
     }
-    return this.qTable.get(key);
-  }
-
-  _hashState(state) {
-    // Discretize state into bins for tabular Q-learning
-    let hash = '';
-    for (let i = 0; i < state.length; i++) {
-      hash += Math.floor(state[i] * 4).toString(36);
-    }
-    return hash;
+    return qvals;
   }
 
   train() {
     if (this.replay.size < 64) return;
 
     const batch = this.replay.sample(32);
+    const lr = 0.01;
+
     for (const { state, action, reward, nextState } of batch) {
       const qvals = this._getQValues(state);
       const nextQvals = this._getQValues(nextState);
       const maxNextQ = Math.max(...nextQvals);
       const target = reward + this.gamma * maxNextQ;
-      const lr = 0.01;
-      qvals[action] += lr * (target - qvals[action]);
+      
+      const tdError = target - qvals[action];
+      
+      // Gradient descent updates on weights and biases
+      const w = this.weights[action];
+      for (let i = 0; i < state.length; i++) {
+        w[i] += lr * tdError * state[i];
+      }
+      this.biases[action] += lr * tdError;
     }
 
     this.trainingSteps++;

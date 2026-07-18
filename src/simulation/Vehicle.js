@@ -6,14 +6,6 @@ import { LANE_WIDTH_PX, VEHICLE_DIMS, CANVAS_SCALE } from '../constants.js';
  * Moves along A* routes between intersections with realistic physics
  */
 
-const VEHICLE_TYPES = {
-  car:        { length: 14, width: 7,  maxSpeed: 180, color: null, accel: 120 },
-  bus:        { length: 28, width: 10, maxSpeed: 120, color: '#FFB400', accel: 60 },
-  truck:      { length: 22, width: 9,  maxSpeed: 100, color: '#8B8F98', accel: 50 },
-  motorcycle: { length: 9,  width: 5,  maxSpeed: 220, color: '#E8EAED', accel: 160 },
-  emergency:  { length: 18, width: 8,  maxSpeed: 200, color: '#FF3B5C', accel: 140 },
-};
-
 const CAR_COLORS = [
   '#3D9EFF','#00E87A','#FFB400','#FF3B5C','#9B6FFF',
   '#E8EAED','#5A8FCC','#CC7A5A','#6FCF97','#BB86FC',
@@ -42,6 +34,12 @@ export class Vehicle {
     this.type = type;
     this.length = dim.length * CANVAS_SCALE;
     this.width = dim.width * CANVAS_SCALE;
+    
+    // Phase 1 Safety Enforcer: Vehicle width must not exceed 80% of lane width
+    if (this.width > 0.8 * LANE_WIDTH_PX()) {
+      console.warn(`[Physics] Vehicle ${type} width (${this.width.toFixed(1)}px) exceeds 80% of lane width (${(0.8 * LANE_WIDTH_PX()).toFixed(1)}px)!`);
+    }
+
     const baseSpeedPxS = (dim.maxSpeed * 1000 / 3600) * CANVAS_SCALE;
     this.maxSpeed = baseSpeedPxS * (0.85 + Math.random() * 0.3);
     this.accel = dim.accel * CANVAS_SCALE; // Accel in pixels/s^2
@@ -165,6 +163,9 @@ export class Vehicle {
     
     const speedLimit = ((edge.speedLimit || 40) * 1000 / 3600) * CANVAS_SCALE * weatherMult;
     let desiredSpeed = Math.min(this.maxSpeed, speedLimit);
+
+    // Apply Greenshields density scaling to desiredSpeed (prevents micro/macro boundary speed discontinuity)
+    desiredSpeed *= this._getDensitySpeedMultiplier(edge);
     
     // MACRO SIMULATION (Out of Focus Area)
     if (!this.inViewport) {
@@ -184,6 +185,30 @@ export class Vehicle {
           // Calculate distance to stop line (usually 15px back from intersection)
           const rem = (1 - this.segmentProgress) * edge.length;
           if (rem < 35) desiredSpeed = 0;
+        }
+      }
+    }
+    
+    // Turning deceleration: check turn angle to next segment when approaching intersection
+    if (this.routeIndex + 2 < this.route.length && this.segmentProgress > 0.8) {
+      const nextEdge = this.graph.getEdge(this.route[this.routeIndex + 1], this.route[this.routeIndex + 2]);
+      if (nextEdge) {
+        const from1 = this.graph.nodes.get(edge.from);
+        const to1 = this.graph.nodes.get(edge.to);
+        const from2 = this.graph.nodes.get(nextEdge.from);
+        const to2 = this.graph.nodes.get(nextEdge.to);
+        if (from1 && to1 && from2 && to2) {
+          const heading1 = Math.atan2(to1.y - from1.y, to1.x - from1.x);
+          const heading2 = Math.atan2(to2.y - from2.y, to2.x - from2.x);
+          let angleDiff = Math.abs(heading2 - heading1);
+          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+          angleDiff = Math.abs(angleDiff);
+
+          // If turn is sharp (> 10 degrees), decelerate proportionally
+          if (angleDiff > 0.15) {
+            desiredSpeed *= Math.max(0.3, 1 - (angleDiff / Math.PI) * 0.7);
+          }
         }
       }
     }
@@ -216,14 +241,63 @@ export class Vehicle {
         desiredSpeed = Math.min(desiredSpeed, leadVehicle.speed * Math.max(0, (minGap - 8) / (safeDistance - 8)));
       }
     }
+
+    // Overtaking & Lane changing physics
+    if (this.inViewport && leadVehicle && leadVehicle.speed < desiredSpeed * 0.75) {
+      const now = performance.now();
+      if (!this.lastLaneChangeTime) this.lastLaneChangeTime = 0;
+      if (now - this.lastLaneChangeTime > 3000) {
+        const possibleLanes = [];
+        if (this.laneIndex - 1 >= 0) possibleLanes.push(this.laneIndex - 1);
+        if (this.laneIndex + 1 < edge.lanes) possibleLanes.push(this.laneIndex + 1);
+
+        let laneChangePossible = false;
+        let targetLane = this.laneIndex;
+
+        for (const tLane of possibleLanes) {
+          let gapAhead = Infinity;
+          let gapBehind = Infinity;
+
+          // Query spatial grid for safety check in the target lane
+          const targetLaneAhead = spatialGrid.query(this.pos.x, this.pos.y, 50);
+          for (const other of targetLaneAhead) {
+            if (other.id === this.id || !other.alive) continue;
+            if (other.currentEdgeId !== this.currentEdgeId || other.laneIndex !== tLane) continue;
+
+            const dist = (other.segmentProgress - this.segmentProgress) * edge.length;
+            if (dist > 0) {
+              const gap = dist - other.length;
+              if (gap < gapAhead) gapAhead = gap;
+            } else {
+              const gap = -dist - this.length;
+              if (gap < gapBehind) gapBehind = gap;
+            }
+          }
+
+          // Safety gap check: 35px ahead and 25px behind
+          if (gapAhead > 35 && gapBehind > 25) {
+            targetLane = tLane;
+            laneChangePossible = true;
+            break;
+          }
+        }
+
+        if (laneChangePossible) {
+          this.laneIndex = targetLane;
+          this.lastLaneChangeTime = now;
+        }
+      }
+    }
     
     // Acceleration / Braking
     if (this.speed < desiredSpeed) {
       this.speed += this.accel * dt;
+      this.state = 'moving';
     } else if (this.speed > desiredSpeed) {
       // Hard braking if speed is significantly higher than desired
       const brakeFactor = desiredSpeed === 0 ? 3 : 1.5;
       this.speed -= this.accel * brakeFactor * dt;
+      this.state = desiredSpeed < this.speed * 0.75 ? 'braking' : 'moving';
     }
     
     this.speed = Math.max(0, Math.min(this.speed, this.maxSpeed));
@@ -231,7 +305,7 @@ export class Vehicle {
     if (this.speed < 2) {
       this.state = 'stopped';
       this.waitTime += dt;
-    } else {
+    } else if (this.state !== 'braking') {
       this.state = 'moving';
     }
     
@@ -283,14 +357,7 @@ export class Vehicle {
 
   _macroUpdate(dt, intersections, edge, desiredSpeed) {
     const nextIntersection = this.nextNode;
-    // Base speed on edge density
-    if (edge.density !== undefined && edge.lanes) {
-      // 100 vehicles per km per lane is typical jam density
-      // Length is in pixels. Let's convert density per 100 meters
-      const lengthM = edge.length / CANVAS_SCALE;
-      const densityPer100m = (edge.density / (lengthM / 100)) / edge.lanes;
-      if (densityPer100m > 5) desiredSpeed *= Math.max(0.1, 1 - (densityPer100m / 20));
-    }
+    // Note: desiredSpeed is already pre-scaled by Greenshields density in update() before delegate call
 
     if (nextIntersection && this.segmentProgress > 0.8) {
       const intObj = intersections.get(this.route[this.routeIndex + 1]);
@@ -330,6 +397,15 @@ export class Vehicle {
       }
     }
 
-    this._updatePosition();
+    this._updatePosition(dt);
+  }
+
+  _getDensitySpeedMultiplier(edge) {
+    if (!edge || edge.density === undefined || !edge.lanes) return 1.0;
+    const lengthKm = edge.length / (CANVAS_SCALE * 1000);
+    if (lengthKm <= 0) return 1.0;
+    const densityK = (edge.density / lengthKm) / edge.lanes; // PCU per km per lane
+    const jamDensity = 130; // standard jam density threshold
+    return Math.max(0.05, 1 - Math.min(1, densityK / jamDensity));
   }
 }

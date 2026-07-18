@@ -40,6 +40,7 @@ export class RLAgent {
     this.prevStates = new Map();
     this.prevActions = new Map();
     this.prevInfos = new Map();
+    this.redStreaks = new Map();
   }
 
   observe(intersectionId, engine) {
@@ -47,6 +48,17 @@ export class RLAgent {
     if (!int) return;
 
     const state = this.encoder.encode(int, engine);
+
+    // Track consecutive-red steps per direction to feed the starvation penalty
+    if (!this.redStreaks.has(intersectionId)) {
+      this.redStreaks.set(intersectionId, { N: 0, S: 0, E: 0, W: 0 });
+    }
+    const streaks = this.redStreaks.get(intersectionId);
+    for (const dir of ['N', 'S', 'E', 'W']) {
+      const isGreen = int.trafficLight.canPass(dir);
+      const hasQueue = int.queues[dir] > 0;
+      streaks[dir] = (isGreen || !hasQueue) ? 0 : streaks[dir] + 1;
+    }
     
     const info = {
       waitSeconds: int.totalWaitSeconds || 0,
@@ -55,6 +67,7 @@ export class RLAgent {
       qEW: int.queues.E + int.queues.W,
       emergencyBlocked: int.emergencyApproaching && (int.queues.N>0 || int.queues.S>0 || int.queues.E>0 || int.queues.W>0),
       completedThisStep: engine.completedThisStep || 0,
+      redStreaks: { ...streaks },
     };
 
     // If we have a previous state, store transition

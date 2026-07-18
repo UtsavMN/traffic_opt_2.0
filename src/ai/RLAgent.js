@@ -1,6 +1,7 @@
 import { StateEncoder } from './StateEncoder.js';
 import { ExperienceReplay } from './ExperienceReplay.js';
 import { computeReward } from './RewardFunction.js';
+import { QApproximator } from './QApproximator.js';
 
 /**
  * RLAgent — DQN shadow agent. Observes and logs but doesn't act (Phase 1).
@@ -24,17 +25,8 @@ export class RLAgent {
     this.trainingSteps = 0;
     this.shadowMode = true;
 
-    // Linear Function Approximator weights (8 actions x 22 state dimensions)
-    const stateDim = 22;
-    this.weights = Array.from({ length: this.actionCount }, () => {
-      const arr = new Float32Array(stateDim);
-      for (let i = 0; i < stateDim; i++) {
-        // Small random initial weights
-        arr[i] = (Math.random() - 0.5) * 0.05;
-      }
-      return arr;
-    });
-    this.biases = new Float32Array(this.actionCount);
+    // Linear Function Approximator
+    this.q = new QApproximator(this.actionCount);
 
     // Per-intersection state tracking
     this.prevStates = new Map();
@@ -104,38 +96,18 @@ export class RLAgent {
   }
 
   _getQValues(state) {
-    const qvals = new Float32Array(this.actionCount);
-    for (let a = 0; a < this.actionCount; a++) {
-      let q = this.biases[a];
-      const w = this.weights[a];
-      for (let i = 0; i < state.length; i++) {
-        q += w[i] * state[i];
-      }
-      qvals[a] = q;
-    }
-    return qvals;
+    return this.q.predict(state);
   }
 
   train() {
     if (this.replay.size < 64) return;
 
     const batch = this.replay.sample(32);
-    const lr = 0.01;
-
     for (const { state, action, reward, nextState } of batch) {
-      const qvals = this._getQValues(state);
-      const nextQvals = this._getQValues(nextState);
-      const maxNextQ = Math.max(...nextQvals);
+      const nextQ = this.q.predict(nextState);
+      const maxNextQ = Math.max(...nextQ);
       const target = reward + this.gamma * maxNextQ;
-      
-      const tdError = target - qvals[action];
-      
-      // Gradient descent updates on weights and biases
-      const w = this.weights[action];
-      for (let i = 0; i < state.length; i++) {
-        w[i] += lr * tdError * state[i];
-      }
-      this.biases[action] += lr * tdError;
+      this.q.update(state, action, target, 0.01);
     }
 
     this.trainingSteps++;

@@ -175,15 +175,6 @@ export class Vehicle {
       y = from.y + dy * this.segmentProgress;
     }
     
-    const hLen = Math.hypot(headingDx, headingDy) || 1;
-    dirX = headingDx / hLen;
-    dirY = headingDy / hLen;
-    
-    const perpX = -dirY, perpY = dirX;
-    
-    this.pos.x = x + perpX * this.laneOffset;
-    this.pos.y = y + perpY * this.laneOffset;
-    
     const targetHeading = Math.atan2(headingDy, headingDx);
     if (this.heading === undefined || this.speed < 0.1) {
       this.heading = targetHeading;
@@ -194,6 +185,12 @@ export class Vehicle {
       const headingLerp = 1 - Math.pow(0.85, dt * 60);
       this.heading += diff * headingLerp;
     }
+
+    const perpX = -Math.sin(this.heading);
+    const perpY = Math.cos(this.heading);
+    
+    this.pos.x = x + perpX * this.laneOffset;
+    this.pos.y = y + perpY * this.laneOffset;
   }
 
   update(dt, intersections, spatialGrid, weatherMult = 1, isNight = false) {
@@ -243,7 +240,30 @@ export class Vehicle {
           intersectionBlocked = this._isIntersectionCenterOccupied(intObj, spatialGrid);
         }
 
-        const shouldStop = (!lightCanPass && !this.sirenActive) || intersectionBlocked;
+        // Yellow Box Junction Rule: Do not enter intersection if downstream lane is fully congested
+        let downstreamBlocked = false;
+        if (this.segmentProgress > 0.75 && this.segmentProgress < 0.95 && this.routeIndex + 2 < this.route.length) {
+          const nextEdge = this.graph.getEdge(this.route[this.routeIndex + 1], this.route[this.routeIndex + 2]);
+          if (nextEdge) {
+            const targetLane = Math.min(this.laneIndex, nextEdge.lanes - 1);
+            const nextNodeObj = this.nextNode;
+            if (nextNodeObj) {
+              const nearbyNext = spatialGrid.query(nextNodeObj.x, nextNodeObj.y, 45);
+              for (const other of nearbyNext) {
+                if (other.id === this.id || !other.alive) continue;
+                if (other.currentEdgeId === nextEdge.id && other.laneIndex === targetLane) {
+                  const distFromStart = other.segmentProgress * nextEdge.length;
+                  if (distFromStart < this.length + 12 && other.speed < 1.5) {
+                    downstreamBlocked = true;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        const shouldStop = (!lightCanPass && !this.sirenActive) || intersectionBlocked || downstreamBlocked;
 
         if (shouldStop) {
           const rem = (1 - this.segmentProgress) * edge.length;

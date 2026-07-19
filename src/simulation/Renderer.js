@@ -300,6 +300,21 @@ export class Renderer {
     for (const [, int] of intersections) {
       if (!this.isInsideViewport(int.x, int.y, bounds)) continue;
       const s = this.worldToScreen(int.x, int.y);
+      const z = this.camera.zoom;
+
+      // Draw seamless asphalt junction patch to merge incoming roads beautifully
+      if (z > 0.8) {
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, 14 * z, 0, Math.PI * 2);
+        ctx.fillStyle = '#2E3442'; // Matches local road color base
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, 14 * z, 0, Math.PI * 2);
+        ctx.strokeStyle = '#1D212A';
+        ctx.lineWidth = 1 * z;
+        ctx.stroke();
+      }
 
       // Traffic lights — 4 signal heads
       const tl = int.trafficLight;
@@ -312,7 +327,7 @@ export class Renderer {
       const isYellow = tl.currentPhase.includes('YELLOW');
       const hexColor = isGreen ? '#00E87A' : (isYellow ? '#FFB400' : '#FF3B5C');
 
-      if (this.camera.zoom > 2.5) {
+      if (z > 2.5) {
         // Draw 4 signal heads facing approaches (offset from center so road remains fully visible)
         const z = this.camera.zoom;
         const dist = 12 * z;

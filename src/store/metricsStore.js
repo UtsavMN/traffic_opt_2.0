@@ -15,6 +15,8 @@ export const useMetricsStore = create((set, get) => ({
   timeSaved: 0,
   congestionLevel: 0,
   avgSpeedKmh: 40,
+  economicLoss: 0,
+  moneySaved: 0,
 
   // ── Trip Tracking ──────────────────────────────────
   completedTrips: [],   // { waitTime, travelTime, distance, time }
@@ -69,20 +71,31 @@ export const useMetricsStore = create((set, get) => ({
     const baseline = 22.0 + (sr * 16.0);
     const timeSaved = Math.max(0, baseline - avgWaitTime);
 
-    return {
-      history,
-      avgWaitTime,
-      throughput,
-      greenEfficiency,
-      imbalance,
-      aiDecisionsPerMin,
-      optimizationScore,
-      vehicleCount: snapshot.vehicleCount || 0,
-      spawnRate: sr,
-      timeSaved,
-      congestionLevel: snapshot.congestionLevel || 0,
-      avgSpeedKmh: snapshot.avgSpeedKmh || 0,
-    };
+     // Compute accrued economic loss and money saved index (at ₹0.095 per vehicle-second waiting loss)
+     const totalVehicles = snapshot.vehicleCount || 0;
+     const dtSeconds = 0.5;
+     const currentLossRate = avgWaitTime * totalVehicles * 0.095;
+     const newEconomicLoss = state.economicLoss + currentLossRate * dtSeconds;
+
+     const currentSavedRate = timeSaved * totalVehicles * 0.095;
+     const newMoneySaved = state.moneySaved + currentSavedRate * dtSeconds;
+
+     return {
+       history,
+       avgWaitTime,
+       throughput,
+       greenEfficiency,
+       imbalance,
+       aiDecisionsPerMin,
+       optimizationScore,
+       vehicleCount: totalVehicles,
+       spawnRate: sr,
+       timeSaved,
+       congestionLevel: snapshot.congestionLevel || 0,
+       avgSpeedKmh: snapshot.avgSpeedKmh || 0,
+       economicLoss: newEconomicLoss,
+       moneySaved: newMoneySaved,
+     };
   }),
 
   recordTripComplete: (trip) => set((state) => {

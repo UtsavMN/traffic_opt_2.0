@@ -100,8 +100,13 @@ export class Engine {
     this.totalWaitTime = 0;
     this.vehiclesPassed = 0;
 
-    // Initialize Worker with graph
-    this._pfWorker.postMessage({ type: 'INIT', graph });
+    // Initialize Worker with serialized graph data to prevent DataCloneError
+    const serializedGraph = {
+      nodes: Array.from(graph.nodes.entries()),
+      edges: Array.from(graph.edges.entries()),
+      adjacency: Array.from(graph.adjacency.entries()).map(([k, v]) => [k, Array.from(v)]),
+    };
+    this._pfWorker.postMessage({ type: 'INIT', graph: serializedGraph });
 
     for (const [id, node] of graph.nodes) {
       const intersection = new Intersection(id, node.x, node.y, node.zone);

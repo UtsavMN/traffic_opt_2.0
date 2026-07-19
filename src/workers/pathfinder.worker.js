@@ -5,9 +5,11 @@ let graph = null;
 
 self.onmessage = ({ data }) => {
   if (data.type === 'INIT') { 
-    graph = data.graph; 
-    // Restore prototype so the cloned graph object has all CityGraph methods
-    Object.setPrototypeOf(graph, CityGraph.prototype);
+    const raw = data.graph;
+    graph = new CityGraph();
+    graph.nodes = new Map(raw.nodes);
+    graph.edges = new Map(raw.edges);
+    graph.adjacency = new Map(raw.adjacency.map(([k, v]) => [k, new Set(v)]));
     return; 
   }
   

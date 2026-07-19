@@ -120,6 +120,17 @@ export class Engine {
       this.intersections.set(id, intersection);
     }
 
+    // Compute maxLanes for each intersection to dynamically scale junction rendering
+    for (const [, int] of this.intersections) {
+      int.maxLanes = 2; // default fallback
+    }
+    for (const [, edge] of graph.edges) {
+      const fromInt = this.intersections.get(edge.from);
+      const toInt = this.intersections.get(edge.to);
+      if (fromInt) fromInt.maxLanes = Math.max(fromInt.maxLanes || 2, edge.lanes);
+      if (toInt) toInt.maxLanes = Math.max(toInt.maxLanes || 2, edge.lanes);
+    }
+
     this.intersectionGrid = new SpatialGrid(80);
     for (const int of this.intersections.values()) {
       this.intersectionGrid.insert({
@@ -435,15 +446,15 @@ export class Engine {
     
     if (!route || !origin) return;
 
-    // Pick type based on real-world Bengaluru traffic survey distribution
+    // Pick type based on real-world Bengaluru traffic survey distribution (adjusted for emergency visibility)
     const r = Math.random();
     let type = 'car';
-    if (r < 0.73) type = 'motorcycle';     // 73% Two-Wheelers
-    else if (r < 0.88) type = 'car';        // 15% Cars
-    else if (r < 0.92) type = 'rickshaw';   // 4% Auto-rickshaws
-    else if (r < 0.97) type = 'bus';        // 5% Buses
-    else if (r < 0.99) type = 'truck';      // 2% Trucks
-    else type = 'emergency';                // 1% Emergency vehicles
+    if (r < 0.65) type = 'motorcycle';     // 65% Two-Wheelers
+    else if (r < 0.80) type = 'car';        // 15% Cars
+    else if (r < 0.88) type = 'rickshaw';   // 8% Auto-rickshaws
+    else if (r < 0.93) type = 'bus';        // 5% Buses
+    else if (r < 0.96) type = 'truck';      // 3% Trucks
+    else type = 'emergency';                // 4% Emergency vehicles (Ambulances)
 
     const v = this.vehiclePool.acquire(type, route, this.graph);
     if (!v) { console.warn('[Spawn] Pool exhausted'); return; }

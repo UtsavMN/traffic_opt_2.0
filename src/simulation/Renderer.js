@@ -302,15 +302,19 @@ export class Renderer {
       const s = this.worldToScreen(int.x, int.y);
       const z = this.camera.zoom;
 
+      // Dynamically calculate radius of junction based on road width
+      const roadWidth = (int.maxLanes || 2) * LANE_WIDTH_PX();
+      const patchRadius = (roadWidth * 0.5 + 1.2) * z;
+
       // Draw seamless asphalt junction patch to merge incoming roads beautifully
       if (z > 0.8) {
         ctx.beginPath();
-        ctx.arc(s.x, s.y, 14 * z, 0, Math.PI * 2);
+        ctx.arc(s.x, s.y, patchRadius, 0, Math.PI * 2);
         ctx.fillStyle = '#2E3442'; // Matches local road color base
         ctx.fill();
         
         ctx.beginPath();
-        ctx.arc(s.x, s.y, 14 * z, 0, Math.PI * 2);
+        ctx.arc(s.x, s.y, patchRadius, 0, Math.PI * 2);
         ctx.strokeStyle = '#1D212A';
         ctx.lineWidth = 1 * z;
         ctx.stroke();
@@ -328,9 +332,8 @@ export class Renderer {
       const hexColor = isGreen ? '#00E87A' : (isYellow ? '#FFB400' : '#FF3B5C');
 
       if (z > 2.5) {
-        // Draw 4 signal heads facing approaches (offset from center so road remains fully visible)
-        const z = this.camera.zoom;
-        const dist = 12 * z;
+        // Draw 4 signal heads facing approaches (offset dynamically to sit right outside the intersection line)
+        const dist = patchRadius + 4 * z;
         
         const drawSignal = (color, angle) => {
           ctx.save();

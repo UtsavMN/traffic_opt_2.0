@@ -55,13 +55,13 @@ export class Intersection {
     // Green Efficiency Tracking (only for active intersections)
     if (prevPhase !== this.trafficLight.currentPhase && this.getTotalQueue() > 0) {
       if (prevPhase === 'NS_GREEN') {
-        const hadVehicles = this.getQueueNS() > 0 || this._vehiclesPassed > 0;
+        const hadVehicles = this.getQueueNS() > 0 || this.vehiclesPassedThisGreenPhase > 0;
         if (this.onGreenPhaseEnd) this.onGreenPhaseEnd(hadVehicles);
-        this._vehiclesPassed = 0;
+        this.vehiclesPassedThisGreenPhase = 0;
       } else if (prevPhase === 'EW_GREEN') {
-        const hadVehicles = this.getQueueEW() > 0 || this._vehiclesPassed > 0;
+        const hadVehicles = this.getQueueEW() > 0 || this.vehiclesPassedThisGreenPhase > 0;
         if (this.onGreenPhaseEnd) this.onGreenPhaseEnd(hadVehicles);
-        this._vehiclesPassed = 0;
+        this.vehiclesPassedThisGreenPhase = 0;
       }
     }
 

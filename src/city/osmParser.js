@@ -157,7 +157,7 @@ export function pruneDisconnectedNodes(graph) {
 }
 
 export function clusterNearbyNodes(graph, CANVAS_SCALE) {
-  const THRESHOLD_PX = 35 * CANVAS_SCALE;  // 35 real meters to merge super junctions
+  const THRESHOLD_PX = 20 * CANVAS_SCALE;  // 20 real meters to merge super junctions
   const nodes = [...graph.getAllNodes()];
   const merged = new Map();  // oldId -> superJunctionId
 

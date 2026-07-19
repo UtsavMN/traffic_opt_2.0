@@ -8,7 +8,7 @@ export class MultiAgentCoordinator {
   constructor() {
     this.rlAgent = new RLAgent();
     this.observeInterval = 2.0; // observe every 2 sim seconds
-    this.trainInterval = 5.0;   // train every 5 sim seconds
+    this.trainInterval = 1.0;   // train every 1 sim seconds
     this.observeTimer = 0;
     this.trainTimer = 0;
     this.lastObservations = new Map();

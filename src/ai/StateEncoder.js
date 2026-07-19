@@ -18,7 +18,7 @@ export class StateEncoder {
     const qW = Math.min(1, est.W / maxQ);
 
     // Current phase one-hot
-    const phase = [0, 0, 0, 0];
+    const phase = [0, 0, 0, 0, 0, 0];
     phase[tl.phase] = 1;
 
     // Time in phase normalized
@@ -73,5 +73,5 @@ export class StateEncoder {
     ]);
   }
 
-  get inputSize() { return 22; }
+  get inputSize() { return 24; }
 }

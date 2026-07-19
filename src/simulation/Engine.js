@@ -325,10 +325,10 @@ export class Engine {
     }
 
     // Jam Detection & Police Assignment (only for active edges)
-    // Jam Detection & Police Assignment (only for active edges)
     for (const edge of activeEdges) {
       const avgSpeed = edge.currentSpeedSum / edge.vehicleCount;
-      if (avgSpeed < edge.speedLimit * 0.1) {
+      const speedLimitPxS = (edge.speedLimit * 1000 / 3600) * CANVAS_SCALE;
+      if (avgSpeed < speedLimitPxS * 0.1) {
         edge.jamTimer = (edge.jamTimer || 0) + dt;
       } else {
         edge.jamTimer = 0;
@@ -503,7 +503,6 @@ export class Engine {
       int.totalWaitSeconds = 0;
       int.emergencyApproaching = false;
       int.emergencyDir = null;
-      int._vehiclesPassed = 0;
     }
     // Count stopped/slow vehicles near intersections
     for (const v of this.vehicles) {
@@ -517,8 +516,6 @@ export class Engine {
       if (dir) {
         if (v.speed <= 15) {
           int.queues[dir]++;
-        } else {
-          int._vehiclesPassed = (int._vehiclesPassed || 0) + 1;
         }
         int.maxWait = Math.max(int.maxWait, v.waitTime);
         int.totalWaitSeconds += v.waitTime;

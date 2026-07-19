@@ -435,6 +435,14 @@ export class Vehicle {
         this.segmentProgress = 0;
         this.routeIndex++;
         
+        const crossedNodeId = this.route[this.routeIndex];
+        const crossedInt = intersections.get(crossedNodeId);
+        if (crossedInt) {
+          crossedInt.vehiclesPassedAccumulatedController = (crossedInt.vehiclesPassedAccumulatedController || 0) + 1;
+          crossedInt.vehiclesPassedAccumulatedRL = (crossedInt.vehiclesPassedAccumulatedRL || 0) + 1;
+          crossedInt.vehiclesPassedThisGreenPhase = (crossedInt.vehiclesPassedThisGreenPhase || 0) + 1;
+        }
+
         if (this.routeIndex >= this.route.length - 1) {
           this._recordTripComplete();
           this.alive = false;
@@ -502,6 +510,15 @@ export class Vehicle {
 
       if (this.segmentProgress >= 1) {
         this.routeIndex++;
+        
+        const crossedNodeId = this.route[this.routeIndex];
+        const crossedInt = intersections.get(crossedNodeId);
+        if (crossedInt) {
+          crossedInt.vehiclesPassedAccumulatedController = (crossedInt.vehiclesPassedAccumulatedController || 0) + 1;
+          crossedInt.vehiclesPassedAccumulatedRL = (crossedInt.vehiclesPassedAccumulatedRL || 0) + 1;
+          crossedInt.vehiclesPassedThisGreenPhase = (crossedInt.vehiclesPassedThisGreenPhase || 0) + 1;
+        }
+
         this.segmentProgress = 0;
         this.currentEdgeId = null;
         if (this.routeIndex >= this.route.length - 1) {

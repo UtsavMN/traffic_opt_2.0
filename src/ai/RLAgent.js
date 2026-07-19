@@ -58,9 +58,10 @@ export class RLAgent {
       qNS: int.queues.N + int.queues.S,
       qEW: int.queues.E + int.queues.W,
       emergencyBlocked: int.emergencyApproaching && (int.queues.N>0 || int.queues.S>0 || int.queues.E>0 || int.queues.W>0),
-      completedThisStep: int._vehiclesPassed || 0,
+      completedThisStep: int.vehiclesPassedAccumulatedRL || 0,
       redStreaks: { ...streaks },
     };
+    int.vehiclesPassedAccumulatedRL = 0;
 
     // If we have a previous state, store transition
     if (this.prevStates.has(intersectionId)) {
@@ -70,7 +71,7 @@ export class RLAgent {
       
       info.prevWaitSeconds = prevInfo.waitSeconds;
       
-      const reward = computeReward(prevState, state, prevAction, info);
+      const reward = computeReward(prevState, state, ACTIONS[prevAction], info);
       this.replay.push(prevState, prevAction, reward, state, false);
     }
 
@@ -102,13 +103,17 @@ export class RLAgent {
   train() {
     if (this.replay.size < 64) return;
 
-    const batch = this.replay.sample(32);
-    for (const { state, action, reward, nextState } of batch) {
-      const nextQ = this.q.predict(nextState);
-      let maxNextQ = Math.max(...nextQ);
-      if (isNaN(maxNextQ)) maxNextQ = 0;
-      const target = reward + this.gamma * maxNextQ;
-      this.q.update(state, action, target, 0.01);
+    const numBatches = 8;
+    const batchSize = 32;
+    for (let b = 0; b < numBatches; b++) {
+      const batch = this.replay.sample(batchSize);
+      for (const { state, action, reward, nextState } of batch) {
+        const nextQ = this.q.predict(nextState);
+        let maxNextQ = Math.max(...nextQ);
+        if (isNaN(maxNextQ)) maxNextQ = 0;
+        const target = reward + this.gamma * maxNextQ;
+        this.q.update(state, action, target, 0.01);
+      }
     }
 
     this.trainingSteps++;

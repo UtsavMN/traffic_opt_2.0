@@ -4,12 +4,18 @@ import { useUIStore } from '../../store/uiStore.js';
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts';
 
 const ACTION_LABELS = {
-  'SWITCH_TO_NS_GREEN': 'NS→GRN',
-  'SWITCH_TO_EW_GREEN': 'EW→GRN',
-  'EXTEND_CURRENT_5S': 'EXTEND',
-  'TRIGGER_PED_PHASE': 'PED',
-  'EMERGENCY_PREEMPT': 'EMRG',
-  'KEEP_CURRENT': 'KEEP',
+  'KEEP_NS_GREEN': 'KEEP_NS',
+  'SWITCH_TO_NS_GREEN': 'NS_GREEN',
+  'SWITCH_TO_EW_GREEN': 'EW_GREEN',
+  'EXTEND_NS_5S': 'EXT_NS_5s',
+  'EXTEND_EW_5S': 'EXT_EW_5s',
+  'EMERGENCY_OVERRIDE_NS': 'EMRG_NS',
+  'EMERGENCY_OVERRIDE_EW': 'EMRG_EW',
+  'PEDESTRIAN_SCRAMBLE': 'PED_SCRAM',
+  'EMRG_PREEMPT': 'EMRG_PRE',
+  'SWITCH_TO_EW': 'SW_EW',
+  'SWITCH_TO_NS': 'SW_NS',
+  'FORCE_SWITCH': 'FORCE_SW'
 };
 
 export default function AIBrainPanel({ getIntersectionData }) {

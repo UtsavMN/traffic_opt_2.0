@@ -56,7 +56,8 @@ export class AdaptiveController {
         this.totalDecisions++;
         int.triggerAIPulse(decision.action);
 
-        const reward = this._computeReward(int, decision, int._vehiclesPassed || 0);
+        const reward = this._computeReward(int, decision, int.vehiclesPassedAccumulatedController || 0);
+        int.vehiclesPassedAccumulatedController = 0;
         this.totalReward += reward;
         this.rewardHistory.push(reward);
         if (this.rewardHistory.length > 500) this.rewardHistory.shift();

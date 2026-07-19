@@ -29,74 +29,80 @@ export default function MetricsDashboard() {
 
   const optColor = optimizationScore > 75 ? '#00E87A' : optimizationScore > 45 ? '#FFB400' : '#FF3B5C';
 
+  const SHOW_NEW_METRICS = false;
+
   return (
     <>
-      {/* Section 0: Optimization Score */}
-      <div className="panel-section" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <div className="panel-section__title">OPTIMIZATION SCORE</div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '8px 0' }}>
-          <div style={{ display: 'flex', alignItems: 'baseline' }}>
-            <span style={{ fontSize: 36, fontFamily: '"DM Mono", monospace', fontWeight: 700, color: optColor }}>
-              {optimizationScore}
-            </span>
-            <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 2 }}>/100</span>
-          </div>
-        </div>
-        <div style={{ width: '100%', height: 6, background: 'rgba(255,255,255,0.08)', borderRadius: 3, overflow: 'hidden' }}>
-          <div style={{
-            width: `${optimizationScore}%`,
-            height: '100%',
-            borderRadius: 3,
-            background: optColor,
-            transition: 'width 1s ease, background 0.5s ease',
-            boxShadow: `0 0 8px ${optColor}`,
-          }}/>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-          <span style={{ fontSize: 9, color: '#FF3B5C' }}>0 — broken</span>
-          <span style={{ fontSize: 9, color: '#FFB400' }}>55 — working</span>
-          <span style={{ fontSize: 9, color: '#00E87A' }}>90 — optimal</span>
-        </div>
-      </div>
-
-      {/* Section 0.5: Time Saved Benchmark */}
-      <div className="panel-section" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0, 232, 122, 0.03)', padding: '12px 14px', borderRadius: 6, margin: '8px 0' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 10, color: 'rgba(0, 232, 122, 0.75)', fontWeight: 600 }}>TIME SAVED / VEHICLE</span>
-          <span style={{ fontSize: 8, background: 'rgba(0, 232, 122, 0.15)', color: '#00E87A', padding: '1px 4px', borderRadius: 3, fontWeight: 700 }}>VS. STATIC BASELINE</span>
-        </div>
-        <div style={{ fontSize: 24, fontFamily: '"DM Mono", monospace', fontWeight: 700, color: '#00E87A', marginTop: 4 }}>
-          +{timeSaved.toFixed(1)}s <span style={{ fontSize: 11, fontWeight: 400, color: 'rgba(255,255,255,0.6)' }}>saved avg</span>
-        </div>
-        <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>
-          Dynamic coordination vs. traditional fixed-time cycles (120s–150s).
-        </div>
-      </div>
-
-      {/* Section 0.7: Economic Loss & Savings Odometer */}
-      <div className="panel-section" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255, 180, 0, 0.02)', padding: '12px 14px', borderRadius: 6, margin: '8px 0' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 10, color: 'rgba(255, 180, 0, 0.85)', fontWeight: 600 }}>PRODUCTIVITY ASSESSMENT</span>
-          <span style={{ fontSize: 8, background: 'rgba(255, 180, 0, 0.15)', color: '#FFB400', padding: '1px 4px', borderRadius: 3, fontWeight: 700 }}>BCG METRIC</span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.4)' }}>EST. ECONOMIC LOSS</div>
-            <div style={{ fontSize: 16, fontFamily: '"DM Mono", monospace', fontWeight: 700, color: '#FF3B5C', marginTop: 2 }}>
-              ₹{economicLoss.toFixed(0)}
+      {SHOW_NEW_METRICS && (
+        <>
+          {/* Section 0: Optimization Score */}
+          <div className="panel-section" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <div className="panel-section__title">OPTIMIZATION SCORE</div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '8px 0' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline' }}>
+                <span style={{ fontSize: 36, fontFamily: '"DM Mono", monospace', fontWeight: 700, color: optColor }}>
+                  {optimizationScore}
+                </span>
+                <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 2 }}>/100</span>
+              </div>
+            </div>
+            <div style={{ width: '100%', height: 6, background: 'rgba(255,255,255,0.08)', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{
+                width: `${optimizationScore}%`,
+                height: '100%',
+                borderRadius: 3,
+                background: optColor,
+                transition: 'width 1s ease, background 0.5s ease',
+                boxShadow: `0 0 8px ${optColor}`,
+              }}/>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+              <span style={{ fontSize: 9, color: '#FF3B5C' }}>0 — broken</span>
+              <span style={{ fontSize: 9, color: '#FFB400' }}>55 — working</span>
+              <span style={{ fontSize: 9, color: '#00E87A' }}>90 — optimal</span>
             </div>
           </div>
-          <div style={{ flex: 1, borderLeft: '1px solid rgba(255,255,255,0.06)', paddingLeft: 12 }}>
-            <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.4)' }}>AI MONEY SAVED</div>
-            <div style={{ fontSize: 16, fontFamily: '"DM Mono", monospace', fontWeight: 700, color: '#00E87A', marginTop: 2 }}>
-              ₹{moneySaved.toFixed(0)}
+
+          {/* Section 0.5: Time Saved Benchmark */}
+          <div className="panel-section" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0, 232, 122, 0.03)', padding: '12px 14px', borderRadius: 6, margin: '8px 0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 10, color: 'rgba(0, 232, 122, 0.75)', fontWeight: 600 }}>TIME SAVED / VEHICLE</span>
+              <span style={{ fontSize: 8, background: 'rgba(0, 232, 122, 0.15)', color: '#00E87A', padding: '1px 4px', borderRadius: 3, fontWeight: 700 }}>VS. STATIC BASELINE</span>
+            </div>
+            <div style={{ fontSize: 24, fontFamily: '"DM Mono", monospace', fontWeight: 700, color: '#00E87A', marginTop: 4 }}>
+              +{timeSaved.toFixed(1)}s <span style={{ fontSize: 11, fontWeight: 400, color: 'rgba(255,255,255,0.6)' }}>saved avg</span>
+            </div>
+            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>
+              Dynamic coordination vs. traditional fixed-time cycles (120s–150s).
             </div>
           </div>
-        </div>
-        <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)', marginTop: 6, textAlign: 'center' }}>
-          Valued at ₹340/hr (idling fuel + commuter productivity loss index).
-        </div>
-      </div>
+
+          {/* Section 0.7: Economic Loss & Savings Odometer */}
+          <div className="panel-section" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255, 180, 0, 0.02)', padding: '12px 14px', borderRadius: 6, margin: '8px 0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 10, color: 'rgba(255, 180, 0, 0.85)', fontWeight: 600 }}>PRODUCTIVITY ASSESSMENT</span>
+              <span style={{ fontSize: 8, background: 'rgba(255, 180, 0, 0.15)', color: '#FFB400', padding: '1px 4px', borderRadius: 3, fontWeight: 700 }}>BENCHMARK MODEL</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.4)' }}>EST. ECONOMIC LOSS</div>
+                <div style={{ fontSize: 16, fontFamily: '"DM Mono", monospace', fontWeight: 700, color: '#FF3B5C', marginTop: 2 }}>
+                  ₹{economicLoss.toFixed(0)}
+                </div>
+              </div>
+              <div style={{ flex: 1, borderLeft: '1px solid rgba(255,255,255,0.06)', paddingLeft: 12 }}>
+                <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.4)' }}>AI MONEY SAVED</div>
+                <div style={{ fontSize: 16, fontFamily: '"DM Mono", monospace', fontWeight: 700, color: '#00E87A', marginTop: 2 }}>
+                  ₹{moneySaved.toFixed(0)}
+                </div>
+              </div>
+            </div>
+            <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)', marginTop: 6, textAlign: 'center' }}>
+              Valued at ₹340/hr (idling fuel + commuter productivity loss index).
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Section 1: 6 KPI Dashboard */}
       <div className="panel-section">

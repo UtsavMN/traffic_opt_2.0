@@ -37,9 +37,8 @@ export const useMetricsStore = create((set, get) => ({
     // KPI 1: Average Wait Time
     const avgWaitTime = snapshot.avgWaitTime || 0;
 
-    // KPI 2: Throughput (trips completed in last 60s)
-    const recentTrips = state.completedTrips.filter(t => t.time > now - oneMin);
-    const throughput = recentTrips.length;
+    // KPI 2: Throughput (trips completed in last 60s of simulation time)
+    const throughput = snapshot.throughput !== undefined ? snapshot.throughput : state.throughput;
 
     // KPI 3: Green Efficiency
     const greenEfficiency = state.totalGreenPhases > 0

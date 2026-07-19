@@ -4,10 +4,10 @@
 
 // Spawn rate multipliers by hour (0-23)
 const SPAWN_CURVE = [
-  0.1, 0.05, 0.05, 0.05, 0.1, 0.3,   // 00-05: night
-  0.6, 1.0,  1.4,  0.9,  0.7, 0.8,   // 06-11: morning peak
-  0.9, 0.8,  0.7,  0.7,  0.8, 1.5,   // 12-17: evening peak
-  1.3, 0.9,  0.6,  0.4,  0.2, 0.1,   // 18-23: night
+  0.4, 0.3,  0.3,  0.3,  0.4,  0.6,   // 00-05: night (calibrated baseline spawn)
+  0.8, 1.2,  1.5,  1.1,  0.9,  1.0,   // 06-11: morning peak
+  1.1, 1.0,  0.9,  0.9,  1.1,  1.6,   // 12-17: evening peak
+  1.4, 1.1,  0.8,  0.6,  0.5,  0.4,   // 18-23: night
 ];
 
 // Sky gradient colors by time bracket

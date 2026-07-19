@@ -375,24 +375,35 @@ export class Engine {
       : nodes;
 
     const pool = viewportNodes.length >= 2 ? viewportNodes : nodes;
-    const origin = pool[Math.floor(Math.random() * pool.length)];
-    const dest   = nodes[Math.floor(Math.random() * nodes.length)];
-    if (!origin || !dest || origin.id === dest.id) return;
-
-    // Pathfind in worker — never blocks main thread
-    const route = await this.findPathAsync(origin.id, dest.id);
-    if (!route || route.length < 2) return;
-
-    // Origin occupancy check: do not spawn if another vehicle is in the origin segment entry
-    const firstEdgeId = `${route[0]}->${route[1]}`;
-    let originOccupied = false;
-    for (const other of this.vehicles) {
-      if (other.alive && other.currentEdgeId === firstEdgeId && other.segmentProgress < 0.08) {
-        originOccupied = true;
-        break;
+    
+    let route = null;
+    let origin = null;
+    
+    // Try to find a valid route and clear origin up to 3 times to prevent spawn failures
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const originNode = pool[Math.floor(Math.random() * pool.length)];
+      const destNode   = nodes[Math.floor(Math.random() * nodes.length)];
+      if (originNode && destNode && originNode.id !== destNode.id) {
+        const r = await this.findPathAsync(originNode.id, destNode.id);
+        if (r && r.length >= 2) {
+          const firstEdgeId = `${r[0]}->${r[1]}`;
+          let originOccupied = false;
+          for (const other of this.vehicles) {
+            if (other.alive && other.currentEdgeId === firstEdgeId && other.segmentProgress < 0.08) {
+              originOccupied = true;
+              break;
+            }
+          }
+          if (!originOccupied) {
+            route = r;
+            origin = originNode;
+            break;
+          }
+        }
       }
     }
-    if (originOccupied) return;
+    
+    if (!route || !origin) return;
 
     // Pick type based on real-world Bengaluru traffic survey distribution
     const r = Math.random();

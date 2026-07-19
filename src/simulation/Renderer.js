@@ -441,7 +441,7 @@ export class Renderer {
     const bounds = this.getViewportBounds(50);
     const detail = this.camera.getDetail();
 
-    // At overview zoom, draw tiny 1.2px dots so vehicles remain visible in map view
+    // At overview zoom, draw tiny 2.2px dots so vehicles remain visible in map view
     if (detail === 'overview') {
       for (const v of vehicles) {
         if (!v.alive) continue;
@@ -449,7 +449,7 @@ export class Renderer {
         const s = this.worldToScreen(v.pos.x, v.pos.y);
         ctx.fillStyle = v.type === 'emergency' ? '#FF3B5C' : v.color;
         ctx.beginPath();
-        ctx.arc(s.x, s.y, 1.2, 0, Math.PI * 2);
+        ctx.arc(s.x, s.y, 2.2, 0, Math.PI * 2);
         ctx.fill();
       }
       return;
@@ -462,11 +462,11 @@ export class Renderer {
       const s = this.worldToScreen(v.pos.x, v.pos.y);
       const z = this.camera.zoom;
 
-      // District zoom: simple 2px colored dots
+      // District zoom: simple 3.5px colored dots
       if (detail === 'district') {
         ctx.fillStyle = v.type === 'emergency' ? '#FF3B5C' : v.color;
         ctx.beginPath();
-        ctx.arc(s.x, s.y, 2, 0, Math.PI * 2);
+        ctx.arc(s.x, s.y, 3.5, 0, Math.PI * 2);
         ctx.fill();
         continue;
       }
@@ -742,7 +742,7 @@ export class Renderer {
 
     // Dark blue-tinted overlay
     ctx.save();
-    ctx.globalAlpha = darkness * 0.55; // Max 55% opacity at full darkness
+    ctx.globalAlpha = darkness * 0.35; // Max 35% opacity at full darkness for high quality visibility
     ctx.fillStyle = '#050815';
     ctx.fillRect(0, 0, this.width, this.height);
     ctx.restore();

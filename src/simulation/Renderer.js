@@ -332,25 +332,26 @@ export class Renderer {
       const hexColor = isGreen ? '#00E87A' : (isYellow ? '#FFB400' : '#FF3B5C');
 
       if (z > 2.5) {
-        // Draw 4 signal heads facing approaches (offset dynamically to sit right outside the intersection line)
-        const dist = patchRadius + 4 * z;
+        // Draw 4 signal heads facing approaches (offset dynamically to sit on the side of the road, clear of lanes)
+        const dist = patchRadius + 2 * z;
+        const sideOffset = -(roadWidth * 0.5 + 4) * z;
         
         const drawSignal = (color, angle) => {
           ctx.save();
           ctx.rotate(angle);
-          ctx.translate(0, -dist);
+          ctx.translate(sideOffset, -dist);
           
           // Signal box
           ctx.fillStyle = '#1A1A1A';
-          ctx.fillRect(-2 * z, -5 * z, 4 * z, 10 * z);
+          ctx.fillRect(-1.2 * z, -3.5 * z, 2.4 * z, 7 * z);
           
           // Lights
           ctx.fillStyle = color === 'RED' ? '#FF3B5C' : '#330000';
-          ctx.beginPath(); ctx.arc(0, -3 * z, 1.2 * z, 0, Math.PI*2); ctx.fill();
+          ctx.beginPath(); ctx.arc(0, -2.2 * z, 0.8 * z, 0, Math.PI*2); ctx.fill();
           ctx.fillStyle = color === 'YELLOW' ? '#FFB400' : '#333300';
-          ctx.beginPath(); ctx.arc(0, 0, 1.2 * z, 0, Math.PI*2); ctx.fill();
+          ctx.beginPath(); ctx.arc(0, 0, 0.8 * z, 0, Math.PI*2); ctx.fill();
           ctx.fillStyle = color === 'GREEN' ? '#00E87A' : '#003300';
-          ctx.beginPath(); ctx.arc(0, 3 * z, 1.2 * z, 0, Math.PI*2); ctx.fill();
+          ctx.beginPath(); ctx.arc(0, 2.2 * z, 0.8 * z, 0, Math.PI*2); ctx.fill();
           
           ctx.restore();
         };

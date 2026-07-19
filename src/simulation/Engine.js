@@ -449,12 +449,12 @@ export class Engine {
     // Pick type based on real-world Bengaluru traffic survey distribution (adjusted for emergency visibility)
     const r = Math.random();
     let type = 'car';
-    if (r < 0.65) type = 'motorcycle';     // 65% Two-Wheelers
-    else if (r < 0.80) type = 'car';        // 15% Cars
-    else if (r < 0.88) type = 'rickshaw';   // 8% Auto-rickshaws
-    else if (r < 0.93) type = 'bus';        // 5% Buses
-    else if (r < 0.96) type = 'truck';      // 3% Trucks
-    else type = 'emergency';                // 4% Emergency vehicles (Ambulances)
+    if (r < 0.70) type = 'motorcycle';     // 70% Two-Wheelers
+    else if (r < 0.85) type = 'car';        // 15% Cars
+    else if (r < 0.90) type = 'rickshaw';   // 5% Auto-rickshaws
+    else if (r < 0.95) type = 'bus';        // 5% Buses
+    else if (r < 0.985) type = 'truck';     // 3.5% Trucks
+    else type = 'emergency';                // 1.5% Emergency vehicles (Ambulances)
 
     const v = this.vehiclePool.acquire(type, route, this.graph);
     if (!v) { console.warn('[Spawn] Pool exhausted'); return; }

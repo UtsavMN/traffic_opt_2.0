@@ -259,7 +259,17 @@ export class Engine {
 
     for (const v of this.vehicles) {
       if (!v.alive) continue;
-      v.inViewport = this.renderer.isInsideViewport(v.pos.x, v.pos.y, bounds);
+      const edge = v.currentEdge;
+      if (edge) {
+        const fromNode = this.graph.nodes.get(edge.from);
+        const toNode = this.graph.nodes.get(edge.to);
+        v.inViewport = (fromNode && toNode) && (
+          this.renderer.isInsideViewport(fromNode.x, fromNode.y, bounds) ||
+          this.renderer.isInsideViewport(toNode.x, toNode.y, bounds)
+        );
+      } else {
+        v.inViewport = this.renderer.isInsideViewport(v.pos.x, v.pos.y, bounds);
+      }
       if (v.inViewport) this.spatialGrid.insert(v);
     }
 

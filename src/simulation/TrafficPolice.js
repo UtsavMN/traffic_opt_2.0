@@ -18,8 +18,13 @@ export class TrafficPolice {
     if (!this.active) return;
     this.timer += dt;
     
-    // Force green on most congested direction
     if (intersection) {
+      // If the intersection has cleared the queue or timed out, deactivate the unit
+      if (this.timer > dt && !intersection.policeActive) {
+        this.active = false;
+        return;
+      }
+      
       intersection.policeActive = true;
       const nsQ = intersection.getQueueNS();
       const ewQ = intersection.getQueueEW();

@@ -38,8 +38,11 @@ export class Intersection {
         // Max timer exceeded — force deactivate to prevent cross-traffic starvation
         this.policeActive = false;
         this.policeOverrideTimer = 0;
-      } else if (this.policeDirection && this.queues[this.policeDirection] === 0) {
-        this.policeActive = false; // Queue cleared
+      } else if (this.policeDirection && (
+        (this.policeDirection === 'N' && this.getQueueNS() === 0) ||
+        (this.policeDirection === 'E' && this.getQueueEW() === 0)
+      )) {
+        this.policeActive = false; // Corridor queues cleared
         this.policeOverrideTimer = 0;
       } else {
         this.trafficLight.forceGreen(this.policeDirection);

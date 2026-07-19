@@ -483,8 +483,6 @@ export class Vehicle {
         }
       }
     }
-
-    this._updatePosition(dt);
   }
 
   _getDensitySpeedMultiplier(edge) {

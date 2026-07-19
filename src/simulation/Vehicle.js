@@ -237,20 +237,26 @@ export class Vehicle {
         }
 
         // Even if light is green, if there is a vehicle currently in the intersection center, we must stop to prevent T-bone collisions!
+        // We limit this check to segmentProgress < 0.95 (before entering the intersection) to prevent mutual lock deadlocks.
         let intersectionBlocked = false;
-        if (this.segmentProgress > 0.8) {
+        if (this.segmentProgress > 0.8 && this.segmentProgress < 0.95) {
           intersectionBlocked = this._isIntersectionCenterOccupied(intObj, spatialGrid);
         }
 
         const shouldStop = (!lightCanPass && !this.sirenActive) || intersectionBlocked;
 
         if (shouldStop) {
-          // Calculate distance to stop line (usually 15px back from intersection)
           const rem = (1 - this.segmentProgress) * edge.length;
           const stopMargin = 15 * CANVAS_SCALE;
-          if (rem < stopMargin + 20) {
-            // Smooth braking before the stop line, clamping to 0 if at stop line
-            const interp = Math.max(0, (rem - stopMargin) / 20);
+          
+          // Calculate required stopping distance dynamically based on vehicle physics (d = v^2 / 2a)
+          const brakeDecel = this.accel * 3; // hard braking rate used when desiredSpeed is 0
+          const physicalBrakingDist = brakeDecel > 0 ? (this.speed * this.speed) / (2 * brakeDecel) : 0;
+          const brakeDistance = Math.max(25 * CANVAS_SCALE, physicalBrakingDist + stopMargin);
+          
+          if (rem < brakeDistance) {
+            // Smoothly decelerate as we approach the stop margin
+            const interp = Math.max(0, (rem - stopMargin) / (brakeDistance - stopMargin));
             desiredSpeed = Math.min(desiredSpeed, desiredSpeed * interp);
             if (rem < stopMargin) desiredSpeed = 0;
           }

@@ -148,7 +148,11 @@ export default function AIBrainPanel({ getIntersectionData }) {
             </div>
             <div className="phase-timer__info">
               <span className="phase-timer__phase">{intData.phase}</span>
-              <span className="phase-timer__remaining">{intData.remaining.toFixed(1)}s remaining</span>
+              <span className="phase-timer__remaining">
+                {intData.remaining > 1000 
+                  ? `${(intData.timeInPhase || 0).toFixed(1)}s elapsed (AI)`
+                  : `${intData.remaining.toFixed(1)}s remaining`}
+              </span>
             </div>
           </div>
 

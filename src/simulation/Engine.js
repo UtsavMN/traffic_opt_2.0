@@ -343,7 +343,8 @@ export class Engine {
     return new Promise(resolve => {
       const id = crypto.randomUUID();
       this._pfCallbacks.set(id, resolve);
-      this._pfWorker.postMessage({ type: 'FIND_PATH', id, startId, endId });
+      const blocked = this.accidents ? Array.from(this.accidents.getBlockedEdges()) : [];
+      this._pfWorker.postMessage({ type: 'FIND_PATH', id, startId, endId, blocked });
     });
   }
 
@@ -632,6 +633,7 @@ export class Engine {
       phase: int.trafficLight.currentPhase,
       phaseProgress: int.trafficLight.phaseProgress,
       remaining: int.trafficLight.remaining,
+      timeInPhase: int.trafficLight.timer,
       pedestriansWaiting: int.pedestriansWaiting,
       phaseHistory: [...int.phaseHistory],
       totalQueue: int.getTotalQueue(),

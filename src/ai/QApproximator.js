@@ -41,10 +41,19 @@ export class QApproximator {
     for (let i = 0; i < this.stateDim; i++) {
       predicted += this.weights[base + i] * state[i];
     }
-    const error = target - predicted;
+    
+    // Gradient clipping: clamp target error to prevent exploding weight updates
+    let error = target - predicted;
+    if (isNaN(error)) error = 0;
+    error = Math.max(-15.0, Math.min(15.0, error));
+    
     for (let i = 0; i < this.stateDim; i++) {
       this.weights[base + i] += lr * error * state[i];
+      // Weight clipping to maintain long-term numerical bounds
+      this.weights[base + i] = Math.max(-2.5, Math.min(2.5, this.weights[base + i]));
     }
+    
     this.bias[action] += lr * error;
+    this.bias[action] = Math.max(-15.0, Math.min(15.0, this.bias[action]));
   }
 }

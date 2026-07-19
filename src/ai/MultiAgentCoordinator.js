@@ -18,12 +18,20 @@ export class MultiAgentCoordinator {
     this.observeTimer += dt;
     this.trainTimer += dt;
 
-    // Shadow observation
+    // Shadow observation (optimized: only run for active or visible intersections)
     if (this.observeTimer >= this.observeInterval) {
       this.observeTimer = 0;
-      for (const [id] of engine.intersections) {
-        const obs = this.rlAgent.observe(id, engine);
-        if (obs) this.lastObservations.set(id, obs);
+      const bounds = engine.renderer ? engine.renderer.getViewportBounds(100) : null;
+      
+      for (const [id, int] of engine.intersections) {
+        const inViewport = bounds
+          ? (int.x > bounds.minX && int.x < bounds.maxX && int.y > bounds.minY && int.y < bounds.maxY)
+          : true;
+          
+        if (int.getTotalQueue() > 0 || inViewport) {
+          const obs = this.rlAgent.observe(id, engine);
+          if (obs) this.lastObservations.set(id, obs);
+        }
       }
     }
 

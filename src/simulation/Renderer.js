@@ -164,7 +164,7 @@ export class Renderer {
 
     // First Pass: Draw road casing/outline (to merge intersections beautifully)
     for (const [, edge] of graph.edges) {
-      if (edge.from > edge.to) continue;
+      if (edge.from > edge.to && graph.edges.has(`${edge.to}->${edge.from}`)) continue;
       const from = graph.nodes.get(edge.from);
       const to = graph.nodes.get(edge.to);
       if (!from || !to) continue;
@@ -193,7 +193,7 @@ export class Renderer {
 
     // Second Pass: Draw road fill and detailed markings
     for (const [, edge] of graph.edges) {
-      if (edge.from > edge.to) continue;
+      if (edge.from > edge.to && graph.edges.has(`${edge.to}->${edge.from}`)) continue;
       const from = graph.nodes.get(edge.from);
       const to = graph.nodes.get(edge.to);
       if (!from || !to) continue;
@@ -534,6 +534,32 @@ export class Renderer {
         // Blinking strobe light on rear roof
         ctx.fillStyle = flashPhase ? '#3D9EFF' : '#FF3B5C';
         ctx.fillRect(-l * 0.9, -w * 0.3, l * 0.15, w * 0.6);
+      } else if (v.type === 'rickshaw') {
+        // Auto-rickshaw signature: yellow front, green body, open cabin sides
+        // 1. Front yellow hood (covers the front part of length)
+        ctx.fillStyle = '#FFD54F'; // Golden yellow
+        ctx.beginPath();
+        ctx.roundRect(l * 0.1, -w * 0.9, l * 0.9, w * 1.8, Math.max(0.5, 1 * z));
+        ctx.fill();
+
+        // 2. Windshield glass
+        ctx.fillStyle = 'rgba(180,220,255,0.75)';
+        ctx.fillRect(l * 0.6, -w * 0.7, l * 0.15, w * 1.4);
+
+        // 3. Open passenger cabin cutout (black/dark inside)
+        ctx.fillStyle = '#1A1A1A';
+        ctx.fillRect(-l * 0.5, -w * 0.7, l * 0.7, w * 1.4);
+
+        // 4. Rear passenger green canvas cover
+        ctx.fillStyle = '#2E7D32'; // Signature Bengaluru green auto roof
+        ctx.beginPath();
+        ctx.roundRect(-l * 0.95, -w * 0.9, l * 1.0, w * 1.8, Math.max(0.5, 0.8 * z));
+        ctx.fill();
+
+        // 5. Tiny wheels (drawn on sides)
+        ctx.fillStyle = '#0E0F12';
+        ctx.fillRect(-l * 0.4, -w * 1.0, l * 0.3, w * 0.15);
+        ctx.fillRect(-l * 0.4, w * 0.85, l * 0.3, w * 0.15);
       }
 
       // Brake / Tail lights

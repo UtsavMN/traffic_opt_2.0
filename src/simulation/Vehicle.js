@@ -47,7 +47,7 @@ export class Vehicle {
     if (type === 'bus') this.color = '#FFB400';
     if (type === 'truck') this.color = '#8B8F98';
     if (type === 'motorcycle') this.color = '#E8EAED';
-    if (type === 'rickshaw') this.color = '#00B0FF'; // Bright blue-green for auto rickshaws
+    if (type === 'rickshaw') this.color = '#2E7D32'; // Signature green base for auto rickshaws
     if (type === 'emergency') {
       this.color = '#FF3B5C';
       this.sirenActive = true;

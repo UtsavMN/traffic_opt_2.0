@@ -75,8 +75,8 @@ export class Engine {
     // Selected intersection
     this.selectedIntersectionId = null;
 
-    // Web Worker for pathfinding
-    this._pfWorker = new Worker(new URL('../workers/pathfinder.worker.js', import.meta.url), { type: 'module' });
+    // Web Worker for pathfinding (IIFE format for universal compatibility)
+    this._pfWorker = new Worker(new URL('../workers/pathfinder.worker.js', import.meta.url));
     this._pfCallbacks = new Map();
     this._pfWorker.onmessage = ({ data }) => {
       const cb = this._pfCallbacks.get(data.id);

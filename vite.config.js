@@ -6,6 +6,9 @@ export default defineConfig({
   build: {
     sourcemap: true,
   },
+  worker: {
+    format: 'iife',
+  },
   server: {
     port: 5173,
     open: true

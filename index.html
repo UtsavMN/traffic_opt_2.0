@@ -9,6 +9,46 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>🔮</text></svg>">
+    <script>
+      window.addEventListener('error', function(e) {
+        var div = document.getElementById('zenith-crash-banner') || document.createElement('div');
+        div.id = 'zenith-crash-banner';
+        div.style.position = 'fixed';
+        div.style.top = '10px';
+        div.style.left = '10px';
+        div.style.right = '10px';
+        div.style.background = '#FF3B5C';
+        div.style.color = '#FFF';
+        div.style.padding = '15px';
+        div.style.borderRadius = '6px';
+        div.style.zIndex = '999999';
+        div.style.fontFamily = 'monospace';
+        div.style.fontSize = '12px';
+        div.style.whiteSpace = 'pre-wrap';
+        div.style.boxShadow = '0 5px 15px rgba(0,0,0,0.5)';
+        div.innerText = 'UNHANDLED EXCEPTION:\n' + e.message + '\nat ' + e.filename + ':' + e.lineno + '\n\nStack:\n' + (e.error ? e.error.stack : 'No stack trace');
+        if (!div.parentElement) document.body.appendChild(div);
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        var div = document.getElementById('zenith-crash-banner') || document.createElement('div');
+        div.id = 'zenith-crash-banner';
+        div.style.position = 'fixed';
+        div.style.top = '10px';
+        div.style.left = '10px';
+        div.style.right = '10px';
+        div.style.background = '#FFB400';
+        div.style.color = '#000';
+        div.style.padding = '15px';
+        div.style.borderRadius = '6px';
+        div.style.zIndex = '999999';
+        div.style.fontFamily = 'monospace';
+        div.style.fontSize = '12px';
+        div.style.whiteSpace = 'pre-wrap';
+        div.style.boxShadow = '0 5px 15px rgba(0,0,0,0.5)';
+        div.innerText = 'UNHANDLED REJECTION:\n' + e.reason + '\n\nStack:\n' + (e.reason && e.reason.stack ? e.reason.stack : 'No stack trace');
+        if (!div.parentElement) document.body.appendChild(div);
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>

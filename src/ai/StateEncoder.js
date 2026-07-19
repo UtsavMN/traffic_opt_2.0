@@ -7,11 +7,15 @@ export class StateEncoder {
     const tl = int.trafficLight;
     const maxQ = 15;
 
+    // Use estimated queues from the sensor-realism layer!
+    const sensorRealism = engine.sensorRealism;
+    const est = sensorRealism ? sensorRealism.getEstimatedQueues(int.id) : int.queues;
+
     // Queue counts normalized
-    const qN = Math.min(1, int.queues.N / maxQ);
-    const qS = Math.min(1, int.queues.S / maxQ);
-    const qE = Math.min(1, int.queues.E / maxQ);
-    const qW = Math.min(1, int.queues.W / maxQ);
+    const qN = Math.min(1, est.N / maxQ);
+    const qS = Math.min(1, est.S / maxQ);
+    const qE = Math.min(1, est.E / maxQ);
+    const qW = Math.min(1, est.W / maxQ);
 
     // Current phase one-hot
     const phase = [0, 0, 0, 0];
@@ -29,7 +33,11 @@ export class StateEncoder {
       const nn = engine.graph.nodes.get(nId);
       if (!nn) continue;
       const dx = nn.x - int.x, dy = nn.y - int.y;
-      const pressure = ni.getTotalQueue() / (maxQ * 4);
+      
+      const nEst = sensorRealism ? sensorRealism.getEstimatedQueues(nId) : ni.queues;
+      const nTotalQueue = nEst.N + nEst.S + nEst.E + nEst.W;
+      
+      const pressure = nTotalQueue / (maxQ * 4);
       if (Math.abs(dy) > Math.abs(dx)) {
         if (dy < 0) pN = pressure; else pS = pressure;
       } else {

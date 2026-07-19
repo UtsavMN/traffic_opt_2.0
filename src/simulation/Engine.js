@@ -11,6 +11,7 @@ import { Renderer } from './Renderer.js';
 import { TrafficPolice } from './TrafficPolice.js';
 import { findPath } from '../utils/pathfinding.js';
 import { RollingAverage } from '../utils/statistics.js';
+import { SensorRealismLayer } from '../ai/SensorRealismLayer.js';
 
 /**
  * Engine — Main simulation loop. Manages all entities, systems, and rendering.
@@ -37,6 +38,8 @@ export class Engine {
     this.weather = new WeatherSystem();
     this.timeOfDay = new TimeOfDay(8);
     this.accidents = new AccidentSystem();
+    this.sensorRealism = new SensorRealismLayer();
+    this.sensorTimer = 0;
 
     // AI Controller (set externally)
     this.aiController = null;
@@ -247,6 +250,12 @@ export class Engine {
       if (!v.alive) continue;
       v.inViewport = this.renderer.isInsideViewport(v.pos.x, v.pos.y, bounds);
       if (v.inViewport) this.spatialGrid.insert(v);
+    }
+
+    this.sensorTimer = (this.sensorTimer || 0) + dt;
+    if (this.sensorTimer > 0.2) {
+      this.sensorTimer = 0;
+      this.sensorRealism.updateEstimates(this);
     }
 
     this.densityTimer += dt;
@@ -527,6 +536,8 @@ export class Engine {
     this.renderer.drawCrosswalks(this.graph);
     // Layer 3: Heatmap
     this.renderer.drawHeatmap(this.intersections);
+    // Layer 3.2: Sensor Cones
+    this.renderer.drawSensorCones(this.intersections);
     // Layer 3.5: Ambulance Routes
     this.renderer.drawAmbulanceRoutes(this.vehicles, this.graph);
     // Layer 4: Vehicles

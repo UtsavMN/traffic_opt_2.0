@@ -16,6 +16,7 @@ export class Renderer {
       vehicleRoutes: false,
       pedestrianPaths: false,
       zoneColors: false,
+      sensorCones: false, // Visual overlay for virtual sensors
     };
     this.roadCaches = new Map();
   }
@@ -722,6 +723,54 @@ export class Renderer {
       ctx.fillStyle = grd;
       ctx.fillRect(0, 0, this.width, this.height);
     }
+  }
+
+  // ── Layer 3.2: Sensor Cones ──────────────────────────
+  drawSensorCones(intersections) {
+    if (!this.overlays.sensorCones) return;
+    const ctx = this.ctx;
+    const z = this.camera.zoom;
+    const bounds = this.getViewportBounds(150);
+
+    ctx.save();
+    for (const [, int] of intersections) {
+      if (!this.isInsideViewport(int.x, int.y, bounds)) continue;
+      const s = this.worldToScreen(int.x, int.y);
+
+      // Define coordinates for approaches
+      const approachAngles = {
+        N: -Math.PI / 2, // North approach comes from above
+        S: Math.PI / 2,  // South approach comes from below
+        E: 0,            // East approach comes from right
+        W: Math.PI,      // West approach comes from left
+      };
+
+      for (const [dir, angle] of Object.entries(approachAngles)) {
+        // Draw Camera FOV Cone (120m distance)
+        const camRange = 120 * z;
+        ctx.fillStyle = 'rgba(0, 232, 122, 0.02)';
+        ctx.strokeStyle = 'rgba(0, 232, 122, 0.08)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.arc(s.x, s.y, camRange, angle - 0.15, angle + 0.15);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Draw Radar Range Arc (45m distance, narrower beam)
+        const radarRange = 45 * z;
+        ctx.fillStyle = 'rgba(61, 158, 255, 0.03)';
+        ctx.strokeStyle = 'rgba(61, 158, 255, 0.15)';
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.arc(s.x, s.y, radarRange, angle - 0.08, angle + 0.08);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
 }
 

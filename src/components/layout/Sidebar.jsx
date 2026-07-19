@@ -22,6 +22,7 @@ const OVERLAY_OPTIONS = [
   { id: 'vehicleRoutes', label: 'Vehicle Routes' },
   { id: 'pedestrianPaths', label: 'Pedestrian Paths' },
   { id: 'zoneColors', label: 'Zone Colors' },
+  { id: 'sensorCones', label: 'Virtual Sensor Cones' },
 ];
 
 export default function Sidebar({

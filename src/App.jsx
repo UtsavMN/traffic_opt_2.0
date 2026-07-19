@@ -15,6 +15,7 @@ export default function App() {
       <TopBar />
       <Sidebar
         setSimSpeed={sim.setSimSpeed}
+        togglePause={sim.togglePause}
         setSpawnRate={sim.setSpawnRate}
         setWeather={sim.setWeather}
         setTimeOfDay={sim.setTimeOfDay}

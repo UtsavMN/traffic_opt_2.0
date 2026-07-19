@@ -123,28 +123,68 @@ export class Vehicle {
       this.currentEdgeId = edge.id;
       this.laneIndex = this.type === 'bus' ? edge.lanes - 1 : Math.floor(Math.random() * edge.lanes);
       if (this.sirenActive) this.laneIndex = Math.floor(Math.random() * edge.lanes);
+      
+      // Calibrated sub-lane offset for motorcycles (sub-lane filtering)
+      this.subLaneIndex = this.type === 'motorcycle' ? (Math.random() * 0.6 - 0.3) : 0;
     }
-    const targetLaneOffset = (this.laneIndex - edge.lanes / 2 + 0.5) * LANE_WIDTH_PX();
+    const subOffset = this.type === 'motorcycle' ? (this.subLaneIndex || 0) * LANE_WIDTH_PX() : 0;
+    const targetLaneOffset = (this.laneIndex - edge.lanes / 2 + 0.5) * LANE_WIDTH_PX() + subOffset;
     
     // Smooth lane keeping (frame-rate independent)
     if (this.laneOffset === undefined) this.laneOffset = targetLaneOffset;
     const laneLerp = 1 - Math.pow(0.9, dt * 60);
     this.laneOffset += (targetLaneOffset - this.laneOffset) * laneLerp;
 
-    const dx = to.x - from.x, dy = to.y - from.y;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    if (len === 0) return;
+    const geom = edge.geometry;
+    let x = from.x, y = from.y;
+    let headingDx = to.x - from.x, headingDy = to.y - from.y;
+    let dirX = 0, dirY = 0;
     
-    // Direction unit vector
-    const dirX = dx / len, dirY = dy / len;
-    // Perpendicular (right side of road)
+    if (geom && geom.length >= 2) {
+      const targetDist = this.segmentProgress * edge.length;
+      let accDist = 0;
+      let found = false;
+      
+      for (let i = 0; i < geom.length - 1; i++) {
+        const p1 = geom[i], p2 = geom[i+1];
+        const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        
+        if (targetDist <= accDist + segLen + 0.001) {
+          const u = segLen > 0 ? (targetDist - accDist) / segLen : 0;
+          x = p1.x + (p2.x - p1.x) * u;
+          y = p1.y + (p2.y - p1.y) * u;
+          headingDx = p2.x - p1.x;
+          headingDy = p2.y - p1.y;
+          found = true;
+          break;
+        }
+        accDist += segLen;
+      }
+      
+      if (!found) {
+        const last = geom[geom.length - 1];
+        const prev = geom[geom.length - 2];
+        x = last.x;
+        y = last.y;
+        headingDx = last.x - prev.x;
+        headingDy = last.y - prev.y;
+      }
+    } else {
+      const dx = to.x - from.x, dy = to.y - from.y;
+      x = from.x + dx * this.segmentProgress;
+      y = from.y + dy * this.segmentProgress;
+    }
+    
+    const hLen = Math.hypot(headingDx, headingDy) || 1;
+    dirX = headingDx / hLen;
+    dirY = headingDy / hLen;
+    
     const perpX = -dirY, perpY = dirX;
     
-    const t = this.segmentProgress;
-    this.pos.x = from.x + dx * t + perpX * this.laneOffset;
-    this.pos.y = from.y + dy * t + perpY * this.laneOffset;
+    this.pos.x = x + perpX * this.laneOffset;
+    this.pos.y = y + perpY * this.laneOffset;
     
-    const targetHeading = Math.atan2(dy, dx);
+    const targetHeading = Math.atan2(headingDy, headingDx);
     if (this.heading === undefined || this.speed < 0.1) {
       this.heading = targetHeading;
     } else {
@@ -172,6 +212,11 @@ export class Vehicle {
     if (!this.inViewport) {
       this._macroUpdate(dt, intersections, edge, desiredSpeed);
       return;
+    }
+
+    // Dynamic Lane Changing check
+    if (edge.lanes > 1 && this.segmentProgress > 0.15 && this.segmentProgress < 0.85 && Math.random() < 0.05) {
+      this._checkDynamicLaneChange(edge, spatialGrid);
     }
     
     // MICRO SIMULATION (Inside Focus Area)
@@ -247,6 +292,11 @@ export class Vehicle {
       if (other.id === this.id || !other.alive) continue;
       // Must be on the same edge and lane
       if (other.currentEdgeId !== this.currentEdgeId || other.laneIndex !== this.laneIndex) continue;
+      
+      // Sub-lane filtering bypass: if motorcycles are side-by-side laterally, do not trigger car-following brake!
+      if (this.type === 'motorcycle' && other.type === 'motorcycle') {
+        if (Math.abs((other.laneOffset || 0) - (this.laneOffset || 0)) > 6) continue;
+      }
       
       // Must be in front of us
       if (other.segmentProgress > this.segmentProgress) {
@@ -453,5 +503,33 @@ export class Vehicle {
       }
     }
     return false;
+  }
+
+  _checkDynamicLaneChange(edge, spatialGrid) {
+    const candidates = [];
+    if (this.laneIndex > 0) candidates.push(this.laneIndex - 1);
+    if (this.laneIndex < edge.lanes - 1) candidates.push(this.laneIndex + 1);
+    
+    if (candidates.length === 0) return;
+    
+    const queryRadius = Math.max(30, this.length * 2);
+    const nearby = spatialGrid.query(this.pos.x, this.pos.y, queryRadius);
+    
+    const blockedLanes = new Set();
+    for (const other of nearby) {
+      if (other.id === this.id || !other.alive || other.currentEdgeId !== this.currentEdgeId) continue;
+      
+      if (other.laneIndex !== this.laneIndex) {
+        const progressDiff = Math.abs(other.segmentProgress - this.segmentProgress) * edge.length;
+        if (progressDiff < this.length + 5) {
+          blockedLanes.add(other.laneIndex);
+        }
+      }
+    }
+    
+    const freeLanes = candidates.filter(l => !blockedLanes.has(l));
+    if (freeLanes.length > 0) {
+      this.laneIndex = freeLanes[Math.floor(Math.random() * freeLanes.length)];
+    }
   }
 }

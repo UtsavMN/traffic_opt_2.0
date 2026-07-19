@@ -25,13 +25,25 @@ export class CityGraph {
     if (!this.adjacency.has(id)) this.adjacency.set(id, new Set());
   }
 
-  addEdge(fromId, toId, lanes = 2, type = 'local', speedLimit = 40) {
+  addEdge(fromId, toId, lanes = 2, type = 'local', speedLimit = 40, geometry = null) {
     const from = this.nodes.get(fromId);
     const to = this.nodes.get(toId);
     if (!from || !to) return;
 
-    const dx = to.x - from.x, dy = to.y - from.y;
-    const length = Math.sqrt(dx * dx + dy * dy);
+    let length = 0;
+    let actualGeometry = [];
+    if (geometry && geometry.length >= 2) {
+      actualGeometry = geometry;
+      for (let i = 0; i < geometry.length - 1; i++) {
+        const p1 = geometry[i], p2 = geometry[i+1];
+        length += Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      }
+    } else {
+      const dx = to.x - from.x, dy = to.y - from.y;
+      length = Math.sqrt(dx * dx + dy * dy);
+      actualGeometry = [{ x: from.x, y: from.y }, { x: to.x, y: to.y }];
+    }
+
     if (length < 1) return; // skip zero-length edges
 
     const edgeId = `${fromId}->${toId}`;
@@ -42,7 +54,8 @@ export class CityGraph {
       from: fromId, to: toId,
       lanes, type, speedLimit, length,
       blocked: 0,
-      direction: Math.atan2(dy, dx)
+      direction: Math.atan2(to.y - from.y, to.x - from.x),
+      geometry: actualGeometry
     };
 
     this.edges.set(edge.id, edge);

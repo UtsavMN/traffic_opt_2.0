@@ -87,21 +87,30 @@ export function parseOSMRoads(geojson, bounds = null) {
     const oneway = props.oneway === 'yes' || props.oneway === '1' || hw === 'motorway' || props.junction === 'roundabout';
     const type = hw;
 
+    let currentSegmentGeom = [];
+
     for (let i = 0; i < coords.length; i++) {
       const coord = coords[i];
       const key = `${coord[0].toFixed(6)},${coord[1].toFixed(6)}`;
+      const pos = transform(coord[0], coord[1]);
       
+      if (currentSegmentStartId) {
+        currentSegmentGeom.push(pos);
+      }
+
       if (nodes.has(key)) {
         const nodeId = nodes.get(key);
         if (currentSegmentStartId && currentSegmentStartId !== nodeId) {
-          // Add edge
-          graph.addEdge(currentSegmentStartId, nodeId, lanes, type, speedLimit);
+          // Add edge with waypoints
+          graph.addEdge(currentSegmentStartId, nodeId, lanes, type, speedLimit, currentSegmentGeom);
           if (!oneway) {
-            graph.addEdge(nodeId, currentSegmentStartId, lanes, type, speedLimit);
+            const revGeom = [...currentSegmentGeom].reverse();
+            graph.addEdge(nodeId, currentSegmentStartId, lanes, type, speedLimit, revGeom);
           }
         }
         currentSegmentStartId = nodeId;
         currentSegmentStartKey = key;
+        currentSegmentGeom = [pos];
       }
     }
   });
@@ -148,7 +157,7 @@ export function pruneDisconnectedNodes(graph) {
 }
 
 export function clusterNearbyNodes(graph, CANVAS_SCALE) {
-  const THRESHOLD_PX = 20 * CANVAS_SCALE;  // 20 real meters
+  const THRESHOLD_PX = 35 * CANVAS_SCALE;  // 35 real meters to merge super junctions
   const nodes = [...graph.getAllNodes()];
   const merged = new Map();  // oldId -> superJunctionId
 
@@ -199,8 +208,8 @@ export function clusterNearbyNodes(graph, CANVAS_SCALE) {
     const newTo = merged.get(edge.to) || edge.to;
     
     if (newFrom !== newTo) {
-      // Add the edge with its original properties
-      graph.addEdge(newFrom, newTo, edge.lanes, edge.type, edge.speedLimit);
+      // Add the edge with its original properties and polyline geometry
+      graph.addEdge(newFrom, newTo, edge.lanes, edge.type, edge.speedLimit, edge.geometry);
     }
   }
 

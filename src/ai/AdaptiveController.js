@@ -117,6 +117,13 @@ export class AdaptiveController {
     const currentQueue = currentIsNS ? nsQ : ewQ;
     const opposingQueue = currentIsNS ? ewQ : nsQ;
 
+    // Actuated Zero-Demand Hold Veto: if opposing direction is completely empty, lock current green!
+    const isGreenPhase = phase === 'NS_GREEN' || phase === 'EW_GREEN';
+    if (isGreenPhase && opposingQueue === 0) {
+      // Hold green: do not switch, do not trigger yellow
+      return null;
+    }
+
     // Active Reinforcement Learning Decision Path
     if (this.mode === 'RL_ACTIVE' && this.coordinator) {
       const rlAgent = this.coordinator.rlAgent;
@@ -256,6 +263,7 @@ export class AdaptiveController {
     else if (decision.action.startsWith('SWITCH')) {
       const balance = Math.abs(int.getQueueNS() - int.getQueueEW());
       reward += (10 - balance) * 0.3;
+      reward -= 1.5; // Switch penalty: discourage rapid, unnecessary switching!
     }
     return Math.round(reward * 10) / 10;
   }

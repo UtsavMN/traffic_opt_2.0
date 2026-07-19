@@ -81,6 +81,14 @@ export function useSimulation() {
     }
   }, []);
 
+  const togglePause = useCallback(() => {
+    if (engineRef.current) {
+      const isPaused = !engineRef.current.paused;
+      engineRef.current.paused = isPaused;
+      useSimStore.getState().setRunning(!isPaused);
+    }
+  }, []);
+
   const setSpawnRate = useCallback((rate) => {
     if (engineRef.current) {
       engineRef.current.setSpawnRate(rate);
@@ -148,6 +156,7 @@ export function useSimulation() {
     canvasRef,
     engineRef,
     setSimSpeed,
+    togglePause,
     setSpawnRate,
     setWeather,
     setTimeOfDay,

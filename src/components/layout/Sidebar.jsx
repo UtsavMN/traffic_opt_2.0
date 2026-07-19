@@ -27,10 +27,11 @@ const OVERLAY_OPTIONS = [
 
 export default function Sidebar({
   setSimSpeed, setSpawnRate, setWeather, setTimeOfDay,
-  changeScenario, triggerAccident, setOverlay,
+  changeScenario, triggerAccident, setOverlay, togglePause,
 }) {
   const simSpeed = useSimStore(s => s.simSpeed);
   const weather = useSimStore(s => s.weather);
+  const running = useSimStore(s => s.running);
   const overlays = useUIStore(s => s.overlays);
 
   const [spawnVal, setSpawnVal] = useState(1.0);
@@ -60,8 +61,25 @@ export default function Sidebar({
           }}
         />
 
-        <div className="control-row">
+        <div className="control-row" style={{ display: 'flex', alignItems: 'center' }}>
           <span className="control-row__label">Sim Speed</span>
+          <button 
+            className="speed-btn" 
+            style={{ 
+              marginLeft: 'auto', 
+              background: running ? 'rgba(255, 59, 92, 0.15)' : 'rgba(0, 232, 122, 0.15)',
+              color: running ? '#FF3B5C' : '#00E87A',
+              border: running ? '1px solid rgba(255, 59, 92, 0.3)' : '1px solid rgba(0, 232, 122, 0.3)',
+              padding: '2px 8px',
+              fontSize: 10,
+              fontWeight: 700,
+              borderRadius: 3,
+              cursor: 'pointer'
+            }}
+            onClick={togglePause}
+          >
+            {running ? '⏸ PAUSE' : '▶ PLAY'}
+          </button>
         </div>
         <div className="speed-buttons">
           {SPEED_OPTIONS.map(s => (

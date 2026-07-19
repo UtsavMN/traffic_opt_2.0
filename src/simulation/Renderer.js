@@ -123,6 +123,45 @@ export class Renderer {
       local: '#2E3442'      // High contrast slate grey for local streets (clearly visible against night background)
     };
 
+    // Helper: Draw curved polyline path
+    const drawEdgePath = (geometry) => {
+      ctx.beginPath();
+      const start = this.worldToScreen(geometry[0].x, geometry[0].y);
+      ctx.moveTo(start.x, start.y);
+      for (let i = 1; i < geometry.length; i++) {
+        const pt = this.worldToScreen(geometry[i].x, geometry[i].y);
+        ctx.lineTo(pt.x, pt.y);
+      }
+    };
+
+    // Helper: Draw parallel offset path (in meters) for multi-lane roads
+    const drawOffsetPath = (geometry, offset) => {
+      ctx.beginPath();
+      for (let i = 0; i < geometry.length; i++) {
+        const pt = geometry[i];
+        let nx = 0, ny = 0;
+        if (i === 0) {
+          const next = geometry[1] || geometry[0];
+          const dx = next.x - pt.x, dy = next.y - pt.y;
+          const len = Math.hypot(dx, dy) || 1;
+          nx = -dy / len; ny = dx / len;
+        } else if (i === geometry.length - 1) {
+          const prev = geometry[i-1] || geometry[0];
+          const dx = pt.x - prev.x, dy = pt.y - prev.y;
+          const len = Math.hypot(dx, dy) || 1;
+          nx = -dy / len; ny = dx / len;
+        } else {
+          const prev = geometry[i-1], next = geometry[i+1];
+          const dx = next.x - prev.x, dy = next.y - prev.y;
+          const len = Math.hypot(dx, dy) || 1;
+          nx = -dy / len; ny = dx / len;
+        }
+        const s = this.worldToScreen(pt.x + nx * offset, pt.y + ny * offset);
+        if (i === 0) ctx.moveTo(s.x, s.y);
+        else ctx.lineTo(s.x, s.y);
+      }
+    };
+
     // First Pass: Draw road casing/outline (to merge intersections beautifully)
     for (const [, edge] of graph.edges) {
       if (edge.from > edge.to) continue;
@@ -136,9 +175,6 @@ export class Renderer {
         continue;
       }
 
-      const s1 = this.worldToScreen(from.x, from.y);
-      const s2 = this.worldToScreen(to.x, to.y);
-
       // Determine physical scaled width
       let baseW = edge.lanes * LANE_WIDTH_PX();
       if (detail === 'overview') {
@@ -151,9 +187,7 @@ export class Renderer {
       ctx.strokeStyle = '#0B0C0E'; // Match background/outline
       ctx.lineWidth = w + 2 * Math.max(1, this.camera.zoom * 0.4);
       ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(s1.x, s1.y);
-      ctx.lineTo(s2.x, s2.y);
+      drawEdgePath(edge.geometry);
       ctx.stroke();
     }
 
@@ -170,9 +204,6 @@ export class Renderer {
         continue;
       }
 
-      const s1 = this.worldToScreen(from.x, from.y);
-      const s2 = this.worldToScreen(to.x, to.y);
-
       // Determine physical scaled width
       let baseW = edge.lanes * LANE_WIDTH_PX();
       if (detail === 'overview') {
@@ -186,19 +217,15 @@ export class Renderer {
       ctx.strokeStyle = colors[edge.type] || colors.local;
       ctx.lineWidth = w;
       ctx.lineCap = 'round'; // round makes overlapping intersections look continuous
-      ctx.beginPath();
-      ctx.moveTo(s1.x, s1.y);
-      ctx.lineTo(s2.x, s2.y);
+      drawEdgePath(edge.geometry);
       ctx.stroke();
 
       // Center line and Lane Markings (LOD)
       if (this.camera.zoom > 2.5) {
-        // Center line (solid or double yellow) - scale-invariant width to avoid bloated lines
+        // Center line (solid or double yellow)
         ctx.strokeStyle = 'rgba(255,200,0,0.5)';
         ctx.lineWidth = Math.max(1, 0.15 * this.camera.zoom);
-        ctx.beginPath();
-        ctx.moveTo(s1.x, s1.y);
-        ctx.lineTo(s2.x, s2.y);
+        drawEdgePath(edge.geometry);
         ctx.stroke();
         
         // Lane dividers (dashed white)
@@ -207,28 +234,25 @@ export class Renderer {
           ctx.lineWidth = Math.max(0.5, 0.08 * this.camera.zoom);
           ctx.setLineDash([6 * this.camera.zoom, 8 * this.camera.zoom]);
           
-          const dx = s2.x - s1.x, dy = s2.y - s1.y;
-          const len = Math.hypot(dx, dy);
-          if (len > 0) {
-            const px = -dy / len, py = dx / len;
-            for (let dir = -1; dir <= 1; dir += 2) {
-              for (let l = 1; l < edge.lanes; l++) {
-                const offset = (l * (w / 2 / edge.lanes)) * dir;
-                ctx.beginPath();
-                ctx.moveTo(s1.x + px * offset, s1.y + py * offset);
-                ctx.lineTo(s2.x + px * offset, s2.y + py * offset);
-                ctx.stroke();
-              }
+          for (let l = 1; l < edge.lanes; l++) {
+            const offsetM = (l - edge.lanes / 2) * REAL_LANE_WIDTH_M;
+            if (Math.abs(offsetM) > 0.1) {
+              drawOffsetPath(edge.geometry, offsetM);
+              ctx.stroke();
             }
           }
           ctx.setLineDash([]);
         }
         
         // Stop lines
-        const dx = s2.x - s1.x;
-        const dy = s2.y - s1.y;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        if (len > 30 * this.camera.zoom) {
+        if (edge.geometry.length >= 2) {
+          const ptEnd = edge.geometry[edge.geometry.length - 1];
+          const ptPrev = edge.geometry[edge.geometry.length - 2];
+          const sEnd = this.worldToScreen(ptEnd.x, ptEnd.y);
+          const sPrev = this.worldToScreen(ptPrev.x, ptPrev.y);
+          
+          const dx = sEnd.x - sPrev.x, dy = sEnd.y - sPrev.y;
+          const len = Math.hypot(dx, dy) || 1;
           const dirX = dx / len, dirY = dy / len;
           const perpX = -dirY, perpY = dirX;
           
@@ -237,13 +261,23 @@ export class Renderer {
           const offset = 15 * this.camera.zoom;
           
           ctx.beginPath();
-          ctx.moveTo(s2.x - dirX * offset + perpX * (w/2), s2.y - dirY * offset + perpY * (w/2));
-          ctx.lineTo(s2.x - dirX * offset, s2.y - dirY * offset);
+          ctx.moveTo(sEnd.x - dirX * offset + perpX * (w/2), sEnd.y - dirY * offset + perpY * (w/2));
+          ctx.lineTo(sEnd.x - dirX * offset, sEnd.y - dirY * offset);
           ctx.stroke();
 
+          // Opposing stop line at start of segment
+          const ptStart = edge.geometry[0];
+          const ptNext = edge.geometry[1];
+          const sStart = this.worldToScreen(ptStart.x, ptStart.y);
+          const sNext = this.worldToScreen(ptNext.x, ptNext.y);
+          const dxS = sNext.x - sStart.x, dyS = sNext.y - sStart.y;
+          const lenS = Math.hypot(dxS, dyS) || 1;
+          const dirXS = dxS / lenS, dirYS = dyS / lenS;
+          const perpXS = -dirYS, perpYS = dirXS;
+          
           ctx.beginPath();
-          ctx.moveTo(s1.x + dirX * offset - perpX * (w/2), s1.y + dirY * offset - perpY * (w/2));
-          ctx.lineTo(s1.x + dirX * offset, s1.y + dirY * offset);
+          ctx.moveTo(sStart.x + dirXS * offset - perpXS * (w/2), sStart.y + dirYS * offset - perpYS * (w/2));
+          ctx.lineTo(sStart.x + dirXS * offset, sStart.y + dirYS * offset);
           ctx.stroke();
         }
       }
@@ -252,9 +286,7 @@ export class Renderer {
       if (edge.blocked > 0) {
         ctx.strokeStyle = 'rgba(255,180,0,0.3)';
         ctx.lineWidth = w;
-        ctx.beginPath();
-        ctx.moveTo(s1.x, s1.y);
-        ctx.lineTo(s2.x, s2.y);
+        drawEdgePath(edge.geometry);
         ctx.stroke();
       }
     }

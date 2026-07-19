@@ -47,6 +47,7 @@ export class Engine {
 
     // Simulation state
     this.running = false;
+    this.paused = false;
     this.simSpeed = 1;
     this.spawnRate = 2.2; // vehicles/sec base (calibrated for Bengaluru peak flow)
     this.spawnTimer = 0;
@@ -186,10 +187,14 @@ export class Engine {
     dt *= this.simSpeed;
 
     this.completedThisStep = 0;
-    this._update(dt);
-    this._render();
+    // Only run simulation update logic if not paused
+    if (!this.paused) {
+      this._update(dt);
+      this._simTime += dt;
+    }
     
-    this._simTime += dt;
+    // Always render so panning/zooming remains fluid
+    this._render();
 
     // FPS tracking
     this._fpsFrames++;

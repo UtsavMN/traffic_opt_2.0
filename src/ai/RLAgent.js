@@ -58,7 +58,7 @@ export class RLAgent {
       qNS: int.queues.N + int.queues.S,
       qEW: int.queues.E + int.queues.W,
       emergencyBlocked: int.emergencyApproaching && (int.queues.N>0 || int.queues.S>0 || int.queues.E>0 || int.queues.W>0),
-      completedThisStep: engine.completedThisStep || 0,
+      completedThisStep: int._vehiclesPassed || 0,
       redStreaks: { ...streaks },
     };
 

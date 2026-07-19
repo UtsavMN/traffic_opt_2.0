@@ -471,8 +471,8 @@ export class Renderer {
         continue;
       }
 
-      // Visual scale factors to make vehicles fit lane widths realistically (e.g. 0.62 for buses/trucks, 0.68 for others)
-      const visualScale = v.type === 'bus' || v.type === 'truck' ? 0.62 : 0.68;
+      // Visual scale factors to make vehicles fit lane widths realistically (e.g. 0.90 for buses/trucks, 0.95 for others)
+      const visualScale = v.type === 'bus' || v.type === 'truck' ? 0.90 : 0.95;
 
       // Neighborhood zoom: scaled rotated rects based on physical vehicle length/width
       if (detail === 'neighborhood') {

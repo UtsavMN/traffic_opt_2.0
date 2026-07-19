@@ -462,6 +462,7 @@ export class Engine {
       int.totalWaitSeconds = 0;
       int.emergencyApproaching = false;
       int.emergencyDir = null;
+      int._vehiclesPassed = 0;
     }
     // Count stopped/slow vehicles near intersections
     for (const v of this.vehicles) {

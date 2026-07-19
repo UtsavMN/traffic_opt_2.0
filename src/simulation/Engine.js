@@ -40,6 +40,7 @@ export class Engine {
 
     // AI Controller (set externally)
     this.aiController = null;
+    this.buildingsBitmap = null;
 
     // Simulation state
     this.running = false;
@@ -137,7 +138,6 @@ export class Engine {
       this.renderer.camera.centerOn(cx, cy, fitZoom);
       console.log(`[Camera] Centered on (${cx.toFixed(0)}, ${cy.toFixed(0)}) zoom=${fitZoom.toFixed(3)}`);
     }
-    this.renderer.cacheRoads(graph);
   }
 
   _autoZoom() {

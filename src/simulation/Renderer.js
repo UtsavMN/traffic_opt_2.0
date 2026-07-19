@@ -108,117 +108,7 @@ export class Renderer {
 
   // ── Layer 2: Roads ───────────────────────────────────
   // ── Layer 2: Roads ───────────────────────────────────
-  cacheRoads(graph) {
-    if (!graph) return;
-    this.roadCaches = new Map();
-
-    const minX = graph.bounds.minX;
-    const minY = graph.bounds.minY;
-    const maxX = graph.bounds.maxX;
-    const maxY = graph.bounds.maxY;
-    const width = Math.ceil(maxX - minX) || 4000;
-    const height = Math.ceil(maxY - minY) || 4000;
-
-    const lods = ['overview', 'district', 'neighborhood', 'street'];
-    const lodWidths = {
-      overview:      { highway: 3,  arterial: 1.5, local: 0 },
-      district:      { highway: 4,  arterial: 2.5, local: 1 },
-      neighborhood:  { highway: 8,  arterial: 5,   local: 3 },
-      street:        { highway: 16, arterial: 10,  local: 6 },
-    };
-    const colors = { highway: '#2A2E38', arterial: '#1E2228', local: '#171B21' };
-
-    for (const lod of lods) {
-      const cacheCanvas = document.createElement('canvas');
-      cacheCanvas.width = width;
-      cacheCanvas.height = height;
-      const ctx = cacheCanvas.getContext('2d');
-
-      const widths = lodWidths[lod];
-
-      for (const [, edge] of graph.edges) {
-        if (edge.from > edge.to) continue;
-        const from = graph.nodes.get(edge.from);
-        const to = graph.nodes.get(edge.to);
-        if (!from || !to) continue;
-
-        const baseW = widths[edge.type] || widths.local;
-        if (baseW === 0) continue;
-
-        const x1 = from.x - minX;
-        const y1 = from.y - minY;
-        const x2 = to.x - minX;
-        const y2 = to.y - minY;
-
-        // Road fill
-        ctx.strokeStyle = colors[edge.type] || colors.local;
-        ctx.lineWidth = baseW;
-        ctx.lineCap = 'butt';
-        ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
-        ctx.stroke();
-
-        // Center line and Lane Markings (LOD)
-        if (lod === 'street') {
-          // Center line (solid yellow)
-          ctx.strokeStyle = 'rgba(255,200,0,0.5)';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(x1, y1);
-          ctx.lineTo(x2, y2);
-          ctx.stroke();
-
-          // Lane dividers (dashed white)
-          if (edge.lanes > 1) {
-            ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-            ctx.lineWidth = 0.5;
-            ctx.setLineDash([6, 8]);
-
-            const dx = x2 - x1, dy = y2 - y1;
-            const len = Math.hypot(dx, dy);
-            if (len > 0) {
-              const px = -dy / len, py = dx / len;
-              for (let dir = -1; dir <= 1; dir += 2) {
-                for (let l = 1; l < edge.lanes; l++) {
-                  const offset = (l * (baseW / 2 / edge.lanes)) * dir;
-                  ctx.beginPath();
-                  ctx.moveTo(x1 + px * offset, y1 + py * offset);
-                  ctx.lineTo(x2 + px * offset, y2 + py * offset);
-                  ctx.stroke();
-                }
-              }
-            }
-            ctx.setLineDash([]);
-          }
-
-          // Stop lines
-          const dx = x2 - x1;
-          const dy = y2 - y1;
-          const len = Math.sqrt(dx * dx + dy * dy);
-          if (len > 30) {
-            const dirX = dx / len, dirY = dy / len;
-            const perpX = -dirY, perpY = dirX;
-
-            ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-            ctx.lineWidth = 3;
-            const offset = 15;
-
-            ctx.beginPath();
-            ctx.moveTo(x2 - dirX * offset + perpX * (baseW/2), y2 - dirY * offset + perpY * (baseW/2));
-            ctx.lineTo(x2 - dirX * offset, y2 - dirY * offset);
-            ctx.stroke();
-
-            ctx.beginPath();
-            ctx.moveTo(x1 + dirX * offset - perpX * (baseW/2), y1 + dirY * offset - perpY * (baseW/2));
-            ctx.lineTo(x1 + dirX * offset, y1 + dirY * offset);
-            ctx.stroke();
-          }
-        }
-      }
-      this.roadCaches.set(lod, cacheCanvas);
-    }
-  }
+  // Removed unused cacheRoads method to optimize initialization
 
   drawRoads(graph) {
     const ctx = this.ctx;
@@ -518,8 +408,19 @@ export class Renderer {
     const bounds = this.getViewportBounds(50);
     const detail = this.camera.getDetail();
 
-    // At overview zoom, skip vehicles entirely — too small to see
-    if (detail === 'overview') return;
+    // At overview zoom, draw tiny 1.2px dots so vehicles remain visible in map view
+    if (detail === 'overview') {
+      for (const v of vehicles) {
+        if (!v.alive) continue;
+        if (!this.isInsideViewport(v.pos.x, v.pos.y, bounds)) continue;
+        const s = this.worldToScreen(v.pos.x, v.pos.y);
+        ctx.fillStyle = v.type === 'emergency' ? '#FF3B5C' : v.color;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, 1.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      return;
+    }
 
     for (const v of vehicles) {
       if (!v.alive) continue;

@@ -3,7 +3,7 @@ import { MinHeap } from './MinHeap.js';
 /**
  * A* Pathfinding on CityGraph using MinHeap
  */
-export function findPath(graph, startId, endId, blockedEdges = new Set()) {
+export function findPath(graph, startId, endId, blockedEdges = new Set(), jammedEdges = new Set()) {
   if (!graph.nodes.has(startId) || !graph.nodes.has(endId)) return null;
   const open = new MinHeap();
   const gScore = new Map([[startId, 0]]);
@@ -30,7 +30,9 @@ export function findPath(graph, startId, endId, blockedEdges = new Set()) {
       const edge = graph.getEdge(cur, nid);
       if (!edge) continue;
       
-      const g = (gScore.get(cur) || 0) + edge.length;
+      // Dynamic rerouting: scale up edge cost by 10x if the edge is jammed
+      const weight = (jammedEdges && jammedEdges.has(edgeKey)) ? 10.0 : 1.0;
+      const g = (gScore.get(cur) || 0) + edge.length * weight;
       if (g < (gScore.get(nid) ?? Infinity)) {
         cameFrom.set(nid, cur);
         gScore.set(nid, g);

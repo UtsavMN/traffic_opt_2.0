@@ -72,6 +72,7 @@ export class Vehicle {
     this.distanceTravelled = 0;
     this.alive = true;
     this.inViewport = false;
+    this.intersectionWaitTime = 0;
     
     // Lane offset
     this.laneOffset = undefined;
@@ -216,6 +217,13 @@ export class Vehicle {
       this._checkDynamicLaneChange(edge, spatialGrid);
     }
     
+    // Update intersection wait timer
+    if (this.segmentProgress > 0.75 && this.speed < 1.5) {
+      this.intersectionWaitTime += dt;
+    } else {
+      this.intersectionWaitTime = 0;
+    }
+
     // MICRO SIMULATION (Inside Focus Area)
     
     // Check traffic light at next intersection
@@ -240,9 +248,9 @@ export class Vehicle {
           intersectionBlocked = this._isIntersectionCenterOccupied(intObj, spatialGrid);
         }
 
-        // Yellow Box Junction Rule: Do not enter intersection if downstream lane is fully congested
+        // Yellow Box Junction Rule: Do not enter intersection if downstream lane is fully congested (bypass if waiting too long to avoid deadlocks)
         let downstreamBlocked = false;
-        if (this.segmentProgress > 0.75 && this.segmentProgress < 0.95 && this.routeIndex + 2 < this.route.length) {
+        if (this.segmentProgress > 0.75 && this.segmentProgress < 0.95 && this.routeIndex + 2 < this.route.length && this.intersectionWaitTime < 15.0) {
           const nextEdge = this.graph.getEdge(this.route[this.routeIndex + 1], this.route[this.routeIndex + 2]);
           if (nextEdge) {
             const targetLane = Math.min(this.laneIndex, nextEdge.lanes - 1);

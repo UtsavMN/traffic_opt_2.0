@@ -356,11 +356,31 @@ export class Engine {
   }
 
   findPathAsync(startId, endId) {
-    return new Promise(resolve => {
-      const id = crypto.randomUUID();
-      this._pfCallbacks.set(id, resolve);
+    // Find jammed edges to avoid in pathfinding
+    const jammed = [];
+    if (this.graph) {
+      for (const [id, edge] of this.graph.edges) {
+        if (edge.isJammed) jammed.push(id);
+      }
+    }
+
+    if (!this.workerReady) {
+      return findPath(this.graph, startId, endId, new Set(), new Set(jammed));
+    }
+    return new Promise((resolve) => {
+      const id = this.nextPathId++;
+      this.pathCallbacks.set(id, resolve);
+      
       const blocked = this.accidents ? Array.from(this.accidents.getBlockedEdges()) : [];
-      this._pfWorker.postMessage({ type: 'FIND_PATH', id, startId, endId, blocked });
+      
+      this.pathfinderWorker.postMessage({
+        type: 'FIND_PATH',
+        id,
+        startId,
+        endId,
+        blocked,
+        jammed
+      });
     });
   }
 

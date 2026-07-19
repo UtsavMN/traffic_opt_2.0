@@ -15,7 +15,8 @@ self.onmessage = ({ data }) => {
   
   if (data.type === 'FIND_PATH') {
     const blockedSet = new Set(data.blocked || []);
-    const route = findPath(graph, data.startId, data.endId, blockedSet);
+    const jammedSet = new Set(data.jammed || []);
+    const route = findPath(graph, data.startId, data.endId, blockedSet, jammedSet);
     self.postMessage({ id: data.id, route });
   }
 };

@@ -78,9 +78,9 @@ export class Cyclist {
       }
     }
 
-    if (desiredSpeed > this.speed) {
+    if (this.speed < desiredSpeed) {
       this.speed = Math.min(desiredSpeed, this.speed + this.accel * dt);
-    } else {
+    } else if (this.speed > desiredSpeed) {
       this.speed = Math.max(desiredSpeed, this.speed - this.accel * 2 * dt);
     }
 

@@ -21,11 +21,25 @@ export class Pedestrian {
     this.animFrame = Math.random() * Math.PI * 2;
     this.color = `hsl(${30 + Math.random() * 30}, ${50 + Math.random() * 30}%, ${60 + Math.random() * 20}%)`;
     this.radius = 3;
+    this.lastCrossedIntersectionId = null;
   }
 
   update(dt, intersections, intersectionGrid) {
     if (!this.alive) return;
     this.animFrame += dt * 8;
+
+    // Clear last crossed intersection once we walk far enough away
+    if (this.lastCrossedIntersectionId && intersections) {
+      const crossed = intersections.get(this.lastCrossedIntersectionId);
+      if (crossed) {
+        const dist = Math.hypot(this.pos.x - crossed.x, this.pos.y - crossed.y);
+        if (dist > 45) {
+          this.lastCrossedIntersectionId = null;
+        }
+      } else {
+        this.lastCrossedIntersectionId = null;
+      }
+    }
 
     const toDestDist = this.pos.dist(this.destination);
     if (toDestDist < 10) { this.alive = false; return; }
@@ -40,6 +54,7 @@ export class Pedestrian {
         const nearby = intersectionGrid.query(this.pos.x, this.pos.y, 30);
         for (const entry of nearby) {
           const int = entry.intersection;
+          if (int.id === this.lastCrossedIntersectionId) continue;
           const dist = Math.sqrt((this.pos.x - int.x) ** 2 + (this.pos.y - int.y) ** 2);
           if (dist < 30 && dist > 5) {
             this.nearIntersection = int;
@@ -56,6 +71,7 @@ export class Pedestrian {
         }
       } else if (intersections) {
         for (const [, int] of intersections) {
+          if (int.id === this.lastCrossedIntersectionId) continue;
           const dist = Math.sqrt((this.pos.x - int.x) ** 2 + (this.pos.y - int.y) ** 2);
           if (dist < 30 && dist > 5) {
             this.nearIntersection = int;
@@ -94,6 +110,7 @@ export class Pedestrian {
       
       if (this.crossingProgress >= 1) {
         this.state = 'walking';
+        this.lastCrossedIntersectionId = this.nearIntersection ? this.nearIntersection.id : null;
         this.nearIntersection = null;
         this.waitTime = 0;
       }

@@ -20,6 +20,8 @@ export default function MetricsDashboard() {
   const aiDecisionsPerMin = useMetricsStore(s => s.aiDecisionsPerMin);
   const optimizationScore = useMetricsStore(s => s.optimizationScore);
 
+  const timeSaved = useMetricsStore(s => s.timeSaved);
+
   const optColor = optimizationScore > 75 ? '#00E87A' : optimizationScore > 45 ? '#FFB400' : '#FF3B5C';
 
   return (
@@ -49,6 +51,20 @@ export default function MetricsDashboard() {
           <span style={{ fontSize: 9, color: '#FF3B5C' }}>0 — broken</span>
           <span style={{ fontSize: 9, color: '#FFB400' }}>55 — working</span>
           <span style={{ fontSize: 9, color: '#00E87A' }}>90 — optimal</span>
+        </div>
+      </div>
+
+      {/* Section 0.5: Time Saved Benchmark */}
+      <div className="panel-section" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0, 232, 122, 0.03)', padding: '12px 14px', borderRadius: 6, margin: '8px 0' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>TIME SAVED / VEHICLE</span>
+          <span style={{ fontSize: 8, background: 'rgba(0, 232, 122, 0.15)', color: '#00E87A', padding: '1px 4px', borderRadius: 3, fontWeight: 700 }}>VS. STATIC BASELINE</span>
+        </div>
+        <div style={{ fontSize: 24, fontFamily: '"DM Mono", monospace', fontWeight: 700, color: '#00E87A', marginTop: 4 }}>
+          +{timeSaved.toFixed(1)}s <span style={{ fontSize: 11, fontWeight: 400, color: 'rgba(255,255,255,0.6)' }}>saved avg</span>
+        </div>
+        <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>
+          Dynamic coordination vs. traditional fixed-time cycles (120s–150s).
         </div>
       </div>
 

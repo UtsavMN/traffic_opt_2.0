@@ -47,6 +47,7 @@ export class Vehicle {
     if (type === 'bus') this.color = '#FFB400';
     if (type === 'truck') this.color = '#8B8F98';
     if (type === 'motorcycle') this.color = '#E8EAED';
+    if (type === 'rickshaw') this.color = '#00B0FF'; // Bright blue-green for auto rickshaws
     if (type === 'emergency') {
       this.color = '#FF3B5C';
       this.sirenActive = true;
@@ -181,10 +182,33 @@ export class Vehicle {
       const intObj = intersections.get(this.route[this.routeIndex + 1]);
       if (intObj) {
         const dir = this._getDirection();
-        if (dir && !intObj.trafficLight.canPass(dir) && !this.sirenActive) {
+        const lightColor = dir ? (dir === 'N' || dir === 'S' ? intObj.trafficLight.getColorNS() : intObj.trafficLight.getColorEW()) : 'GREEN';
+        
+        let lightCanPass = (lightColor === 'GREEN');
+        if (lightColor === 'YELLOW') {
+          const rem = (1 - this.segmentProgress) * edge.length;
+          // If we are close enough to clear, we can pass; otherwise, we must stop!
+          lightCanPass = (rem < 20 * CANVAS_SCALE);
+        }
+
+        // Even if light is green, if there is a vehicle currently in the intersection center, we must stop to prevent T-bone collisions!
+        let intersectionBlocked = false;
+        if (this.segmentProgress > 0.8) {
+          intersectionBlocked = this._isIntersectionCenterOccupied(intObj, spatialGrid);
+        }
+
+        const shouldStop = (!lightCanPass && !this.sirenActive) || intersectionBlocked;
+
+        if (shouldStop) {
           // Calculate distance to stop line (usually 15px back from intersection)
           const rem = (1 - this.segmentProgress) * edge.length;
-          if (rem < 35) desiredSpeed = 0;
+          const stopMargin = 15 * CANVAS_SCALE;
+          if (rem < stopMargin + 20) {
+            // Smooth braking before the stop line, clamping to 0 if at stop line
+            const interp = Math.max(0, (rem - stopMargin) / 20);
+            desiredSpeed = Math.min(desiredSpeed, desiredSpeed * interp);
+            if (rem < stopMargin) desiredSpeed = 0;
+          }
         }
       }
     }
@@ -213,8 +237,9 @@ export class Vehicle {
       }
     }
     
-    // Car following (IDM-like logic)
-    const ahead = spatialGrid.query(this.pos.x, this.pos.y, 45); // Query nearby vehicles
+    // Car following (IDM-like logic) with speed-adaptive spatial query radius
+    const queryRadius = Math.max(45, (this.speed * 2.0) + this.length);
+    const ahead = spatialGrid.query(this.pos.x, this.pos.y, queryRadius);
     let minGap = Infinity;
     let leadVehicle = null;
     
@@ -226,7 +251,7 @@ export class Vehicle {
       // Must be in front of us
       if (other.segmentProgress > this.segmentProgress) {
         const gap = (other.segmentProgress - this.segmentProgress) * edge.length - this.length;
-        if (gap < minGap && gap > -5) {
+        if (gap < minGap && gap > -10) {
           minGap = gap;
           leadVehicle = other;
         }
@@ -235,10 +260,15 @@ export class Vehicle {
     
     if (leadVehicle) {
       // Safety distance based on speed (1.8s headway rule)
-      const safeDistance = 15 + this.speed * 1.8;
-      if (minGap < safeDistance) {
-        // Adjust speed to lead vehicle
-        desiredSpeed = Math.min(desiredSpeed, leadVehicle.speed * Math.max(0, (minGap - 8) / (safeDistance - 8)));
+      const safeDistance = 15 * CANVAS_SCALE + this.speed * 1.8;
+      const minSafetyGap = 3.0 * CANVAS_SCALE; // 3.0 meters hard stopping bumper limit
+      
+      if (minGap < minSafetyGap) {
+        desiredSpeed = 0; // Hard emergency override: stop completely to prevent collision/overlap!
+      } else if (minGap < safeDistance) {
+        // Adjust speed smoothly using IDM safety interpolation
+        const interp = Math.max(0, (minGap - minSafetyGap) / (safeDistance - minSafetyGap));
+        desiredSpeed = Math.min(desiredSpeed, leadVehicle.speed * interp);
       }
     }
 
@@ -407,5 +437,21 @@ export class Vehicle {
     const densityK = (edge.density / lengthKm) / edge.lanes; // PCU per km per lane
     const jamDensity = 130; // standard jam density threshold
     return Math.max(0.05, 1 - Math.min(1, densityK / jamDensity));
+  }
+
+  _isIntersectionCenterOccupied(intersection, spatialGrid) {
+    // Query vehicles within 25px of the intersection center
+    const nearby = spatialGrid.query(intersection.x, intersection.y, 25);
+    for (const other of nearby) {
+      if (other.id === this.id || !other.alive) continue;
+      // If the other vehicle is extremely close to the center and not on our same edge/lane (cross-traffic)
+      const dx = other.pos.x - intersection.x;
+      const dy = other.pos.y - intersection.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 20 && other.currentEdgeId !== this.currentEdgeId) {
+        return true;
+      }
+    }
+    return false;
   }
 }

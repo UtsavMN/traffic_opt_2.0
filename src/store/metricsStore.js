@@ -12,6 +12,7 @@ export const useMetricsStore = create((set, get) => ({
   optimizationScore: 0,
   vehicleCount: 0,
   spawnRate: 0.8,
+  timeSaved: 0,
 
   // ── Trip Tracking ──────────────────────────────────
   completedTrips: [],   // { waitTime, travelTime, distance, time }
@@ -62,6 +63,10 @@ export const useMetricsStore = create((set, get) => ({
       balanceScore * 0.10
     );
 
+    // Compute Time Saved vs. Static baseline: Baseline = 22.0 + (spawnRate * 16.0) seconds
+    const baseline = 22.0 + (sr * 16.0);
+    const timeSaved = Math.max(0, baseline - avgWaitTime);
+
     return {
       history,
       avgWaitTime,
@@ -72,6 +77,7 @@ export const useMetricsStore = create((set, get) => ({
       optimizationScore,
       vehicleCount: snapshot.vehicleCount || 0,
       spawnRate: sr,
+      timeSaved,
     };
   }),
 

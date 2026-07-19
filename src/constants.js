@@ -16,4 +16,5 @@ export const VEHICLE_DIMS = {
   bus:        { length: 12.0, width: 2.5, maxSpeed: 80,  accel: 1.2, decel: 2.5 },
   truck:      { length: 8.5,  width: 2.4, maxSpeed: 90,  accel: 1.0, decel: 2.0 },
   emergency:  { length: 5.5,  width: 2.1, maxSpeed: 160, accel: 3.5, decel: 4.5 },
+  rickshaw:   { length: 2.8,  width: 1.4, maxSpeed: 60,  accel: 1.8, decel: 3.0 },
 };

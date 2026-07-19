@@ -146,7 +146,7 @@ export class SensorRealismLayer {
         }
 
         // Accrue occlusion shadow for the vehicles behind it
-        const pcu = { car: 1.0, bus: 3.0, truck: 2.5, motorcycle: 0.4, emergency: 1.2 }[v.type] || 1.0;
+        const pcu = { car: 1.0, bus: 3.0, truck: 2.5, motorcycle: 0.4, emergency: 1.2, rickshaw: 0.8 }[v.type] || 1.0;
         occlusionShadow += pcu * 15; // Buses project larger shadows
 
         // Run sensor checks

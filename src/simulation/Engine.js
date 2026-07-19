@@ -48,7 +48,7 @@ export class Engine {
     // Simulation state
     this.running = false;
     this.simSpeed = 1;
-    this.spawnRate = 0.8; // vehicles/sec base
+    this.spawnRate = 2.2; // vehicles/sec base (calibrated for Bengaluru peak flow)
     this.spawnTimer = 0;
     this.pedSpawnTimer = 0;
     this.cyclistSpawnTimer = 0;
@@ -263,7 +263,7 @@ export class Engine {
       this.densityTimer = 0;
       for (const [, edge] of this.graph.edges) edge.density = 0;
       
-      const pcuWeights = { car: 1.0, bus: 3.0, truck: 2.5, motorcycle: 0.4, emergency: 1.2 };
+      const pcuWeights = { car: 1.0, bus: 3.0, truck: 2.5, motorcycle: 0.4, emergency: 1.2, rickshaw: 0.8 };
       for (const v of this.vehicles) {
         if (v.alive && v.currentEdgeId) {
           const e = this.graph.edges.get(v.currentEdgeId);
@@ -348,8 +348,8 @@ export class Engine {
     if (this._spawnTimer < 1.0 / effectiveRate) return;
     this._spawnTimer = 0;
     
-    // Using this.vehicles.length because it's an array
-    if (this.vehicles.length >= 400) return;
+    // Calibrated Bengaluru vehicle count limit
+    if (this.vehicles.length >= 1000) return;
 
     const nodes = this.graph?.spawnableNodes; // pre-filtered, always connected
     if (!nodes || nodes.length < 2) return;
@@ -371,14 +371,26 @@ export class Engine {
     const route = await this.findPathAsync(origin.id, dest.id);
     if (!route || route.length < 2) return;
 
-    // Pick type based on realistic Indian traffic distribution
+    // Origin occupancy check: do not spawn if another vehicle is in the origin segment entry
+    const firstEdgeId = `${route[0]}->${route[1]}`;
+    let originOccupied = false;
+    for (const other of this.vehicles) {
+      if (other.alive && other.currentEdgeId === firstEdgeId && other.segmentProgress < 0.08) {
+        originOccupied = true;
+        break;
+      }
+    }
+    if (originOccupied) return;
+
+    // Pick type based on real-world Bengaluru traffic survey distribution
     const r = Math.random();
     let type = 'car';
-    if (r < 0.05) type = 'emergency'; // 5%
-    else if (r < 0.17) type = 'bus';       // 12%
-    else if (r < 0.27) type = 'truck';     // 10%
-    else if (r < 0.42) type = 'motorcycle';// 15%
-    else type = 'car';                     // 58%
+    if (r < 0.73) type = 'motorcycle';     // 73% Two-Wheelers
+    else if (r < 0.88) type = 'car';        // 15% Cars
+    else if (r < 0.92) type = 'rickshaw';   // 4% Auto-rickshaws
+    else if (r < 0.97) type = 'bus';        // 5% Buses
+    else if (r < 0.99) type = 'truck';      // 2% Trucks
+    else type = 'emergency';                // 1% Emergency vehicles
 
     const v = this.vehiclePool.acquire(type, route, this.graph);
     if (!v) { console.warn('[Spawn] Pool exhausted'); return; }

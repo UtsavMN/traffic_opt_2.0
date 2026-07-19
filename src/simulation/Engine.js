@@ -382,7 +382,7 @@ export class Engine {
       const id = this.nextPathId++;
       this.pathCallbacks.set(id, resolve);
       
-      const blocked = this.accidents ? Array.from(this.accidents.getBlockedEdges()) : [];
+      const blocked = this.accidents ? Array.from(this.accidents.getBlockedEdges(this.graph)) : [];
       
       this.pathfinderWorker.postMessage({
         type: 'FIND_PATH',
@@ -485,7 +485,7 @@ export class Engine {
 
   _spawnCyclist() {
     if (this.cyclists.length >= 50) return;
-    const blocked = this.accidents.getBlockedEdges();
+    const blocked = this.accidents.getBlockedEdges(this.graph);
     const start = this.graph.getRandomBorderNode();
     const end = this.graph.getRandomBorderNode();
     if (!start || !end || start === end) return;

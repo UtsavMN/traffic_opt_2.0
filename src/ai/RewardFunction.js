@@ -39,7 +39,7 @@ export function computeReward(prevState, nextState, action, info) {
 
   // Emergency preemption bonus
   if (action === 'EMERGENCY_OVERRIDE_NS' || action === 'EMERGENCY_OVERRIDE_EW') {
-    if (info.emergencyBlocked === false) {
+    if (info.emergencyBlocked === true) {
       reward += EMERGENCY_BONUS;
     }
   }

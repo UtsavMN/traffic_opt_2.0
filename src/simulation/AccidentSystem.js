@@ -61,10 +61,15 @@ export class AccidentSystem {
     this.accidents.delete(id);
   }
 
-  getBlockedEdges() {
+  getBlockedEdges(graph = null) {
     const blocked = new Set();
     for (const acc of this.accidents.values()) {
-      // If all lanes blocked, treat as fully blocked
+      if (graph) {
+        const edge = graph.edges.get(acc.edgeId);
+        if (edge && acc.lanesBlocked < edge.lanes) {
+          continue; // partial blockage, still passable
+        }
+      }
       blocked.add(acc.edgeId);
       blocked.add(acc.edgeIdReverse);
     }

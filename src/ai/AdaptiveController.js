@@ -119,8 +119,9 @@ export class AdaptiveController {
     const opposingQueue = currentIsNS ? ewQ : nsQ;
 
     // Actuated Zero-Demand Hold Veto: if opposing direction is completely empty, lock current green!
+    // Prevent vetoing if we have exceeded MAX_GREEN, avoiding starvation of pedestrians/other movements.
     const isGreenPhase = phase === 'NS_GREEN' || phase === 'EW_GREEN';
-    if (isGreenPhase && opposingQueue === 0) {
+    if (isGreenPhase && opposingQueue === 0 && timeInPhase < this.MAX_GREEN) {
       // Hold green: do not switch, do not trigger yellow
       return null;
     }

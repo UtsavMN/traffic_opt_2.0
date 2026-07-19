@@ -406,12 +406,12 @@ export class Vehicle {
     
     // Acceleration / Braking
     if (this.speed < desiredSpeed) {
-      this.speed += this.accel * dt;
+      this.speed = Math.min(desiredSpeed, this.speed + this.accel * dt);
       this.state = 'moving';
     } else if (this.speed > desiredSpeed) {
       // Hard braking if speed is significantly higher than desired
       const brakeFactor = desiredSpeed === 0 ? 3 : 1.5;
-      this.speed -= this.accel * brakeFactor * dt;
+      this.speed = Math.max(desiredSpeed, this.speed - this.accel * brakeFactor * dt);
       this.state = desiredSpeed < this.speed * 0.75 ? 'braking' : 'moving';
     }
     
@@ -492,8 +492,11 @@ export class Vehicle {
       }
     }
     
-    if (this.speed < desiredSpeed) this.speed += this.accel * dt;
-    else if (this.speed > desiredSpeed) this.speed -= this.accel * 2 * dt;
+    if (this.speed < desiredSpeed) {
+      this.speed = Math.min(desiredSpeed, this.speed + this.accel * dt);
+    } else if (this.speed > desiredSpeed) {
+      this.speed = Math.max(desiredSpeed, this.speed - this.accel * 2 * dt);
+    }
     
     this.speed = Math.max(0, Math.min(this.speed, this.maxSpeed));
     

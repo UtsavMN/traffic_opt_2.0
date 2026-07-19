@@ -208,8 +208,16 @@ export function clusterNearbyNodes(graph, CANVAS_SCALE) {
     const newTo = merged.get(edge.to) || edge.to;
     
     if (newFrom !== newTo) {
-      // Add the edge with its original properties and polyline geometry
-      graph.addEdge(newFrom, newTo, edge.lanes, edge.type, edge.speedLimit, edge.geometry);
+      // Correctly update the polyline geometry endpoints to match the new super-junction node centers!
+      let remappedGeom = null;
+      if (edge.geometry && edge.geometry.length >= 2) {
+        remappedGeom = [...edge.geometry];
+        const startNode = graph.nodes.get(newFrom);
+        const endNode = graph.nodes.get(newTo);
+        if (startNode) remappedGeom[0] = { x: startNode.x, y: startNode.y };
+        if (endNode) remappedGeom[remappedGeom.length - 1] = { x: endNode.x, y: endNode.y };
+      }
+      graph.addEdge(newFrom, newTo, edge.lanes, edge.type, edge.speedLimit, remappedGeom);
     }
   }
 

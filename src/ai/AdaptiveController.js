@@ -1,4 +1,5 @@
 import { useAIStore } from '../store/aiStore.js';
+import { safeExecuteRLAction } from './SafetyComplianceWrapper.js';
 
 const ACTIONS = [
   'KEEP_NS_GREEN', 'SWITCH_TO_NS_GREEN', 'SWITCH_TO_EW_GREEN',
@@ -123,13 +124,15 @@ export class AdaptiveController {
       const actionIdx = rlAgent._selectAction(state);
       const actionName = ACTIONS[actionIdx];
 
-      // Execute chosen action
-      this._executeRLAction(int, actionName);
+      // Execute chosen action safely through the compliance logic layer
+      const result = safeExecuteRLAction(int, actionName, this._executeRLAction.bind(this));
 
       return {
         intersectionId: int.id,
-        action: actionName,
-        reason: `DQN RL Agent (ε = ${rlAgent.epsilon.toFixed(3)})`,
+        action: result.executed,
+        reason: result.vetoed
+          ? `${result.reason} (policy requested ${result.vetoed})`
+          : `DQN RL Agent (ε = ${rlAgent.epsilon.toFixed(3)})`,
         time: Date.now(),
       };
     }

@@ -12,6 +12,7 @@ import { TrafficPolice } from './TrafficPolice.js';
 import { findPath } from '../utils/pathfinding.js';
 import { RollingAverage } from '../utils/statistics.js';
 import { SensorRealismLayer } from '../ai/SensorRealismLayer.js';
+import { CANVAS_SCALE } from '../constants.js';
 
 /**
  * Engine — Main simulation loop. Manages all entities, systems, and rendering.

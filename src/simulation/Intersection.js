@@ -29,6 +29,7 @@ export class Intersection {
     this.policeOverrideTimer = 0;
     // Callback for green phase tracking (set externally to decouple from React)
     this.onGreenPhaseEnd = null;
+    this.lastObservedPhase = this.trafficLight.currentPhase;
   }
 
   update(dt) {
@@ -49,19 +50,23 @@ export class Intersection {
       }
     }
     
-    const prevPhase = this.trafficLight.currentPhase;
     this.trafficLight.update(dt);
     
     // Green Efficiency Tracking (only for active intersections)
-    if (prevPhase !== this.trafficLight.currentPhase && this.getTotalQueue() > 0) {
-      if (prevPhase === 'NS_GREEN') {
-        const hadVehicles = this.getQueueNS() > 0 || this.vehiclesPassedThisGreenPhase > 0;
-        if (this.onGreenPhaseEnd) this.onGreenPhaseEnd(hadVehicles);
-        this.vehiclesPassedThisGreenPhase = 0;
-      } else if (prevPhase === 'EW_GREEN') {
-        const hadVehicles = this.getQueueEW() > 0 || this.vehiclesPassedThisGreenPhase > 0;
-        if (this.onGreenPhaseEnd) this.onGreenPhaseEnd(hadVehicles);
-        this.vehiclesPassedThisGreenPhase = 0;
+    const currentPhase = this.trafficLight.currentPhase;
+    if (this.lastObservedPhase !== currentPhase) {
+      const prevPhase = this.lastObservedPhase;
+      this.lastObservedPhase = currentPhase;
+      if (this.getTotalQueue() > 0) {
+        if (prevPhase === 'NS_GREEN') {
+          const hadVehicles = this.getQueueNS() > 0 || this.vehiclesPassedThisGreenPhase > 0;
+          if (this.onGreenPhaseEnd) this.onGreenPhaseEnd(hadVehicles);
+          this.vehiclesPassedThisGreenPhase = 0;
+        } else if (prevPhase === 'EW_GREEN') {
+          const hadVehicles = this.getQueueEW() > 0 || this.vehiclesPassedThisGreenPhase > 0;
+          if (this.onGreenPhaseEnd) this.onGreenPhaseEnd(hadVehicles);
+          this.vehiclesPassedThisGreenPhase = 0;
+        }
       }
     }
 

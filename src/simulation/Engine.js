@@ -50,7 +50,7 @@ export class Engine {
     this.running = false;
     this.paused = false;
     this.simSpeed = 1;
-    this.spawnRate = 2.2; // vehicles/sec base (calibrated for Bengaluru peak flow)
+    this.spawnRate = 0.8; // vehicles/sec base
     this.spawnTimer = 0;
     this.pedSpawnTimer = 0;
     this.cyclistSpawnTimer = 0;
@@ -402,7 +402,7 @@ export class Engine {
     this._spawnTimer = 0;
     
     // Calibrated Bengaluru vehicle count limit
-    if (this.vehicles.length >= 1000) return;
+    if (this.vehicles.length >= 400) return;
 
     const nodes = this.graph?.spawnableNodes; // pre-filtered, always connected
     if (!nodes || nodes.length < 2) return;

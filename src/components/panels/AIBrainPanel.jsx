@@ -45,13 +45,7 @@ export default function AIBrainPanel({ getIntersectionData }) {
     ? (rewardHistory.slice(-100).reduce((a, b) => a + b, 0) / Math.min(100, rewardHistory.length))
     : 0;
 
-  const mapRewardToScore = (r) => {
-    // Maps raw negative reward (typically 0 to -250) to a positive 0-100 score
-    return Math.round(Math.max(0, 100 - Math.min(100, Math.abs(r) * 0.45)) * 10) / 10;
-  };
-
-  const avgRewardScore = mapRewardToScore(avgReward);
-  const chartData = rewardHistory.slice(-200).map((v, i) => ({ i, v: mapRewardToScore(v) }));
+  const chartData = rewardHistory.slice(-200).map((v, i) => ({ i, v }));
 
   return (
     <div className="ai-panel">
@@ -83,10 +77,10 @@ export default function AIBrainPanel({ getIntersectionData }) {
         </div>
 
         <div className="reward-stat">
-          <span className={`reward-stat__value ${avgRewardScore >= 50 ? 'text-green' : 'text-red'}`}>
-            {avgRewardScore.toFixed(1)}%
+          <span className={`reward-stat__value ${avgReward >= 0 ? 'text-green' : 'text-red'}`}>
+            {avgReward >= 0 ? '+' : ''}{avgReward.toFixed(1)}
           </span>
-          <span className="reward-stat__label">Flow Performance (100)</span>
+          <span className="reward-stat__label">avg reward (100)</span>
         </div>
 
         <div style={{ display: 'flex', gap: 12, fontSize: 10, color: 'var(--text-tertiary)' }}>

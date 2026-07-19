@@ -118,9 +118,9 @@ export class Renderer {
 
     // High-contrast slate-grey colors for dark mode readability
     const colors = { 
-      highway: '#3D4452',   // Lighter slate grey for highways
-      arterial: '#2F3540',  // Medium slate grey for arterial roads
-      local: '#22262E'      // Dark slate grey for local streets (clearly visible against #0A0C0F background)
+      highway: '#5A6376',   // Lighter, higher contrast slate grey for highways
+      arterial: '#434B5C',  // Medium slate grey for arterial roads
+      local: '#2E3442'      // High contrast slate grey for local streets (clearly visible against night background)
     };
 
     // First Pass: Draw road casing/outline (to merge intersections beautifully)
@@ -193,9 +193,9 @@ export class Renderer {
 
       // Center line and Lane Markings (LOD)
       if (this.camera.zoom > 2.5) {
-        // Center line (solid or double yellow)
+        // Center line (solid or double yellow) - scale-invariant width to avoid bloated lines
         ctx.strokeStyle = 'rgba(255,200,0,0.5)';
-        ctx.lineWidth = 1 * this.camera.zoom;
+        ctx.lineWidth = Math.max(1, 0.15 * this.camera.zoom);
         ctx.beginPath();
         ctx.moveTo(s1.x, s1.y);
         ctx.lineTo(s2.x, s2.y);
@@ -204,7 +204,7 @@ export class Renderer {
         // Lane dividers (dashed white)
         if (edge.lanes > 1) {
           ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-          ctx.lineWidth = 0.5 * this.camera.zoom;
+          ctx.lineWidth = Math.max(0.5, 0.08 * this.camera.zoom);
           ctx.setLineDash([6 * this.camera.zoom, 8 * this.camera.zoom]);
           
           const dx = s2.x - s1.x, dy = s2.y - s1.y;
@@ -233,7 +233,7 @@ export class Renderer {
           const perpX = -dirY, perpY = dirX;
           
           ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-          ctx.lineWidth = 3 * this.camera.zoom;
+          ctx.lineWidth = Math.max(1.5, 0.35 * this.camera.zoom);
           const offset = 15 * this.camera.zoom;
           
           ctx.beginPath();
@@ -439,14 +439,17 @@ export class Renderer {
         continue;
       }
 
+      // Visual scale factors to make vehicles fit lane widths realistically (e.g. 0.62 for buses/trucks, 0.68 for others)
+      const visualScale = v.type === 'bus' || v.type === 'truck' ? 0.62 : 0.68;
+
       // Neighborhood zoom: scaled rotated rects based on physical vehicle length/width
       if (detail === 'neighborhood') {
         ctx.save();
         ctx.translate(s.x, s.y);
         ctx.rotate(v.heading);
         ctx.fillStyle = v.type === 'emergency' ? '#FF3B5C' : v.color;
-        const l = v.length * z * 0.5;
-        const w = v.width * z * 0.5;
+        const l = v.length * z * 0.5 * visualScale;
+        const w = v.width * z * 0.5 * visualScale;
         ctx.fillRect(-l, -w, l * 2, w * 2);
         ctx.restore();
         continue;
@@ -458,47 +461,47 @@ export class Renderer {
       ctx.translate(s.x, s.y);
       ctx.rotate(v.heading);
 
-      const l = v.length * z * 0.5;
-      const w = v.width * z * 0.5;
+      const l = v.length * z * 0.5 * visualScale;
+      const w = v.width * z * 0.5 * visualScale;
 
       // Base body
       ctx.beginPath();
-      ctx.roundRect(-l, -w, l * 2, w * 2, 2 * z);
+      ctx.roundRect(-l, -w, l * 2, w * 2, Math.max(1, 1.5 * z));
       ctx.fillStyle = v.type === 'emergency' ? '#FFFFFF' : v.color;
       ctx.fill();
 
-      // Vehicle type specific details
+      // Vehicle type specific details (completely scale-invariant using fractions of l and w)
       if (v.type === 'car' || v.type === 'truck' || v.type === 'motorcycle') {
         // Windscreen (front 30%)
         ctx.fillStyle = 'rgba(180,220,255,0.6)';
-        ctx.fillRect(l - (v.length * z * 0.3), -w + 1*z, v.length * z * 0.2, w * 2 - 2*z);
+        ctx.fillRect(l * 0.4, -w * 0.8, l * 0.4, w * 1.6);
         // Rear window
         if (v.type !== 'truck') {
-          ctx.fillRect(-l + (v.length * z * 0.1), -w + 1*z, v.length * z * 0.15, w * 2 - 2*z);
+          ctx.fillRect(-l * 0.7, -w * 0.8, l * 0.3, w * 1.6);
         }
       } else if (v.type === 'bus') {
         // Bus windows
         ctx.fillStyle = 'rgba(180,220,255,0.6)';
-        const winLen = 2 * z;
-        const gap = 1 * z;
-        for (let x = -l + 3*z; x < l - 3*z; x += winLen + gap) {
-          ctx.fillRect(x, -w + 0.5*z, winLen, 1.5*z);
-          ctx.fillRect(x, w - 2*z, winLen, 1.5*z);
+        const winLen = l * 0.15;
+        const gap = l * 0.08;
+        for (let x = -l + l * 0.2; x < l - l * 0.2; x += winLen + gap) {
+          ctx.fillRect(x, -w + w * 0.2, winLen, w * 0.3);
+          ctx.fillRect(x, w - w * 0.5, winLen, w * 0.3);
         }
       } else if (v.type === 'emergency') {
-        // Red cross on roof
+        // Red cross on roof - perfectly proportioned relative to vehicle size
         ctx.fillStyle = '#FF3B5C';
-        ctx.fillRect(-2*z, -4*z, 4*z, 8*z);
-        ctx.fillRect(-4*z, -2*z, 8*z, 4*z);
+        ctx.fillRect(-l * 0.1, -w * 0.5, l * 0.2, w * 1.0);
+        ctx.fillRect(-l * 0.25, -w * 0.2, l * 0.5, w * 0.4);
         
         // Alternating red/blue light bar at 4Hz
         const flashPhase = (Date.now() % 500 < 250);
         ctx.fillStyle = flashPhase ? '#FF3B5C' : '#3D9EFF';
-        ctx.fillRect(l - 3*z, -w + 1*z, 2*z, w * 2 - 2*z);
+        ctx.fillRect(l * 0.7, -w * 0.8, l * 0.15, w * 1.6);
 
         // Blinking strobe light on rear roof
         ctx.fillStyle = flashPhase ? '#3D9EFF' : '#FF3B5C';
-        ctx.fillRect(-l + 1*z, -2*z, 1.5*z, 4*z);
+        ctx.fillRect(-l * 0.9, -w * 0.3, l * 0.15, w * 0.6);
       }
 
       // Brake / Tail lights
@@ -507,14 +510,14 @@ export class Renderer {
       } else {
         ctx.fillStyle = 'rgba(255,59,92,0.4)'; // dim red tail lights
       }
-      ctx.fillRect(-l, -w + 0.5*z, 2 * z, 1.5 * z);
-      ctx.fillRect(-l, w - 2*z, 2 * z, 1.5 * z);
+      ctx.fillRect(-l, -w, l * 0.15, w * 0.3);
+      ctx.fillRect(-l, w - w * 0.3, l * 0.15, w * 0.3);
 
       // Headlights (at night)
       if (isNight) {
         ctx.fillStyle = 'rgba(255,240,180,0.9)';
-        ctx.fillRect(l - 2 * z, -w + 0.5*z, 2 * z, 2 * z);
-        ctx.fillRect(l - 2 * z, w - 2.5*z, 2 * z, 2 * z);
+        ctx.fillRect(l - l * 0.15, -w, l * 0.15, w * 0.3);
+        ctx.fillRect(l - l * 0.15, w - w * 0.3, l * 0.15, w * 0.3);
         // Headlight beam
         ctx.fillStyle = 'rgba(255,240,180,0.04)';
         ctx.beginPath();

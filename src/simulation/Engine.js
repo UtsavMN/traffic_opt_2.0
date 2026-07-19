@@ -513,6 +513,20 @@ export class Engine {
     }
     const avgImbalance = this.intersections.size > 0 ? totalImbalance / this.intersections.size : 0;
 
+    // Calculate network average speed & TomTom/BCG Congestion Level (%)
+    let totalSpeed = 0;
+    let count = 0;
+    for (const v of this.vehicles) {
+      if (v.alive) {
+        totalSpeed += v.speed;
+        count++;
+      }
+    }
+    const avgSpeedPxS = count > 0 ? totalSpeed / count : 0;
+    const avgSpeedKmh = (avgSpeedPxS / CANVAS_SCALE) * 3.6;
+    const freeFlowSpeedKmh = 40.0;
+    const congestionLevel = Math.max(0, Math.min(100, (1.0 - (avgSpeedKmh / freeFlowSpeedKmh)) * 100));
+
     if (this.onMetricsUpdate) {
       this.onMetricsUpdate({
         vehicleCount: this.vehicles.length,
@@ -529,6 +543,8 @@ export class Engine {
         spawnRate: this.spawnRate,
         intersectionCount: this.intersections.size,
         policeCount: this.policeUnits.length,
+        avgSpeedKmh: avgSpeedKmh,
+        congestionLevel: congestionLevel,
         avgImbalance: avgImbalance,
       });
     }

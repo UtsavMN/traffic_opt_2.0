@@ -53,6 +53,8 @@ export function useSimulation() {
         avgWaitTime: data.avgWaitTime,
         throughput: data.throughput,
         spawnRate: data.spawnRate,
+        congestionLevel: data.congestionLevel,
+        avgSpeedKmh: data.avgSpeedKmh,
       });
 
       // Update RL coordinator

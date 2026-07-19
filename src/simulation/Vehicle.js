@@ -309,9 +309,10 @@ export class Vehicle {
     }
     
     if (leadVehicle) {
-      // Safety distance based on speed (1.8s headway rule)
-      const safeDistance = 15 * CANVAS_SCALE + this.speed * 1.8;
-      const minSafetyGap = 3.0 * CANVAS_SCALE; // 3.0 meters hard stopping bumper limit
+      // Safety distance based on speed (1.8s headway rule) scaled by weather friction lag
+      const weatherBrakeMult = Math.min(3.0, 1.0 / (weatherMult * weatherMult));
+      const safeDistance = (15 * CANVAS_SCALE + this.speed * 1.8) * weatherBrakeMult;
+      const minSafetyGap = 3.0 * CANVAS_SCALE * weatherBrakeMult; // larger gap when wet/slippery
       
       if (minGap < minSafetyGap) {
         desiredSpeed = 0; // Hard emergency override: stop completely to prevent collision/overlap!

@@ -13,6 +13,8 @@ export const useMetricsStore = create((set, get) => ({
   vehicleCount: 0,
   spawnRate: 0.8,
   timeSaved: 0,
+  congestionLevel: 0,
+  avgSpeedKmh: 40,
 
   // ── Trip Tracking ──────────────────────────────────
   completedTrips: [],   // { waitTime, travelTime, distance, time }
@@ -78,6 +80,8 @@ export const useMetricsStore = create((set, get) => ({
       vehicleCount: snapshot.vehicleCount || 0,
       spawnRate: sr,
       timeSaved,
+      congestionLevel: snapshot.congestionLevel || 0,
+      avgSpeedKmh: snapshot.avgSpeedKmh || 0,
     };
   }),
 

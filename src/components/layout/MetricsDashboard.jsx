@@ -20,6 +20,9 @@ export default function MetricsDashboard() {
   const aiDecisionsPerMin = useMetricsStore(s => s.aiDecisionsPerMin);
   const optimizationScore = useMetricsStore(s => s.optimizationScore);
 
+  const congestionLevel = useMetricsStore(s => s.congestionLevel);
+  const avgSpeedKmh = useMetricsStore(s => s.avgSpeedKmh);
+
   const timeSaved = useMetricsStore(s => s.timeSaved);
 
   const optColor = optimizationScore > 75 ? '#00E87A' : optimizationScore > 45 ? '#FFB400' : '#FF3B5C';
@@ -100,6 +103,18 @@ export default function MetricsDashboard() {
             <span className="metric-card__label">AI DECISIONS</span>
             <span className="metric-card__value" style={{ color: getKPIColor(aiDecisionsPerMin, [10, 20, 80], 'range') }}>
               {aiDecisionsPerMin}/min
+            </span>
+          </div>
+          <div className="metric-card">
+            <span className="metric-card__label">CONGESTION</span>
+            <span className="metric-card__value" style={{ color: getKPIColor(congestionLevel, [30, 50, 70], 'lower') }}>
+              {congestionLevel.toFixed(0)}%
+            </span>
+          </div>
+          <div className="metric-card">
+            <span className="metric-card__label">AVG SPEED</span>
+            <span className="metric-card__value" style={{ color: getKPIColor(avgSpeedKmh, [12, 18, 28], 'higher') }}>
+              {avgSpeedKmh.toFixed(1)} km/h
             </span>
           </div>
           <div className="metric-card">

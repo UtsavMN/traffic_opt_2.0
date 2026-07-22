@@ -7,7 +7,11 @@ export class SpatialGrid {
     this.cells = new Map();
   }
 
-  _key(cx, cy) { return `${cx},${cy}`; }
+  _key(cx, cy) { 
+    // Optimization: bitwise integer key instead of string allocation
+    // Assuming cx and cy fit within 16-bit signed integers (-32768 to 32767)
+    return (cx << 16) | (cy & 0xFFFF); 
+  }
 
   _cellCoords(x, y) {
     return [Math.floor(x / this.cellSize), Math.floor(y / this.cellSize)];

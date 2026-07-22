@@ -539,18 +539,29 @@ export class Engine {
           this.completedTrips.push(this._simTime);
           this.completedThisStep++;
         }
-        this.vehicles.splice(i, 1);
+        // O(1) removal
+        this.vehicles[i] = this.vehicles[this.vehicles.length - 1];
+        this.vehicles.pop();
         this.vehiclePool.release(v);
       }
     }
     for (let i = this.pedestrians.length - 1; i >= 0; i--) {
-      if (!this.pedestrians[i].alive) this.pedestrians.splice(i, 1);
+      if (!this.pedestrians[i].alive) {
+        this.pedestrians[i] = this.pedestrians[this.pedestrians.length - 1];
+        this.pedestrians.pop();
+      }
     }
     for (let i = this.cyclists.length - 1; i >= 0; i--) {
-      if (!this.cyclists[i].alive) this.cyclists.splice(i, 1);
+      if (!this.cyclists[i].alive) {
+        this.cyclists[i] = this.cyclists[this.cyclists.length - 1];
+        this.cyclists.pop();
+      }
     }
     for (let i = this.policeUnits.length - 1; i >= 0; i--) {
-      if (!this.policeUnits[i].active) this.policeUnits.splice(i, 1);
+      if (!this.policeUnits[i].active) {
+        this.policeUnits[i] = this.policeUnits[this.policeUnits.length - 1];
+        this.policeUnits.pop();
+      }
     }
   }
 

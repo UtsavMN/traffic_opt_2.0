@@ -222,4 +222,6 @@ export function clusterNearbyNodes(graph, CANVAS_SCALE) {
   }
 
   console.log(`[Cluster] ${nodes.length} -> ${graph.getAllNodes().length} nodes after super-junction merging`);
+  // Pre-filter spawnable nodes again (degree >= 2) after cluster deletion
+  graph.spawnableNodes = graph.getAllNodes().filter(n => graph.getDegree(n.id) >= 2);
 }

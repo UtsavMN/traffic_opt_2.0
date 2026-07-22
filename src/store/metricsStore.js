@@ -87,7 +87,7 @@ export const useMetricsStore = create((set, get) => ({
        imbalance,
        aiDecisionsPerMin,
        optimizationScore,
-       vehicleCount: totalVehicles,
+       vehicleCount: snapshot.vehicleCount || 0,
        spawnRate: sr,
        timeSaved,
        congestionLevel: snapshot.congestionLevel || 0,

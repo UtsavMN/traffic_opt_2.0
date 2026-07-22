@@ -13,7 +13,7 @@ export function safeExecuteRLAction(int, actionName, executeFn) {
 
   // Hard ceiling — this is the guarantee that was missing entirely.
   if (timeInPhase >= MAX_GREEN_S) {
-    const forced = currentIsNS ? 'SWITCH_TO_EW_GREEN' : 'SWITCH_TO_NS_GREEN';
+    const forced = 'SWITCH_PHASE';
     executeFn(int, forced);
     return {
       executed: forced,
@@ -26,11 +26,11 @@ export function safeExecuteRLAction(int, actionName, executeFn) {
   // existing upstream MIN_GREEN check (that check already prevents
   // _evaluate() from reaching this branch too early, but this wrapper
   // shouldn't assume that upstream check will never change).
-  const isSwitchAction = actionName === 'SWITCH_TO_NS_GREEN' || actionName === 'SWITCH_TO_EW_GREEN';
+  const isSwitchAction = actionName === 'SWITCH_PHASE';
   if (isSwitchAction && timeInPhase < MIN_GREEN_S) {
-    executeFn(int, 'KEEP_NS_GREEN'); // no-op, hold current phase
+    executeFn(int, 'KEEP_PHASE'); // no-op, hold current phase
     return {
-      executed: 'KEEP_NS_GREEN',
+      executed: 'KEEP_PHASE',
       vetoed: actionName,
       reason: `MIN_GREEN (${MIN_GREEN_S}s) not yet reached — switch vetoed by safety layer`,
     };

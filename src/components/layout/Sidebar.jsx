@@ -70,11 +70,13 @@ export default function Sidebar({
               background: running ? 'rgba(255, 59, 92, 0.15)' : 'rgba(0, 232, 122, 0.15)',
               color: running ? '#FF3B5C' : '#00E87A',
               border: running ? '1px solid rgba(255, 59, 92, 0.3)' : '1px solid rgba(0, 232, 122, 0.3)',
+              boxShadow: running ? '0 0 10px rgba(255, 59, 92, 0.3)' : '0 0 10px rgba(0, 232, 122, 0.3)',
               padding: '2px 8px',
               fontSize: 10,
               fontWeight: 700,
               borderRadius: 3,
-              cursor: 'pointer'
+              cursor: 'pointer',
+              transition: 'all 0.2s ease'
             }}
             onClick={togglePause}
           >

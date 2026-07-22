@@ -30,6 +30,11 @@ export class Intersection {
     // Callback for green phase tracking (set externally to decouple from React)
     this.onGreenPhaseEnd = null;
     this.lastObservedPhase = this.trafficLight.currentPhase;
+    
+    // Accumulators for AI throughput tracking
+    this.vehiclesPassedAccumulatedController = 0;
+    this.vehiclesPassedAccumulatedRL = 0;
+    this.vehiclesPassedThisGreenPhase = 0;
   }
 
   update(dt) {

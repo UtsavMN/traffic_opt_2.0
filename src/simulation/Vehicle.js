@@ -248,9 +248,9 @@ export class Vehicle {
           intersectionBlocked = this._isIntersectionCenterOccupied(intObj, spatialGrid);
         }
 
-        // Yellow Box Junction Rule: Do not enter intersection if downstream lane is fully congested (bypass if waiting too long to avoid deadlocks)
+        // Yellow Box Junction Rule: Do not enter intersection if downstream lane is fully congested
         let downstreamBlocked = false;
-        if (this.segmentProgress > 0.75 && this.segmentProgress < 0.95 && this.routeIndex + 2 < this.route.length && this.intersectionWaitTime < 15.0) {
+        if (this.segmentProgress > 0.75 && this.segmentProgress < 0.95 && this.routeIndex + 2 < this.route.length) {
           const nextEdge = this.graph.getEdge(this.route[this.routeIndex + 1], this.route[this.routeIndex + 2]);
           if (nextEdge) {
             const targetLane = Math.min(this.laneIndex, nextEdge.lanes - 1);

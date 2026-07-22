@@ -71,13 +71,13 @@ export const useMetricsStore = create((set, get) => ({
     const timeSaved = Math.max(0, baseline - avgWaitTime);
 
      // Compute accrued economic loss and money saved index (at ₹0.095 per vehicle-second waiting loss)
-     const totalVehicles = snapshot.vehicleCount || 0;
-     const dtSeconds = 0.5;
-     const currentLossRate = avgWaitTime * totalVehicles * 0.095;
-     const newEconomicLoss = state.economicLoss + currentLossRate * dtSeconds;
+     const dtSeconds = 0.1; // Matches Engine.js tick rate
+     const waitingVehicles = snapshot.waitingCount || 0;
+     const newEconomicLoss = state.economicLoss + (waitingVehicles * dtSeconds * 0.095);
 
-     const currentSavedRate = timeSaved * totalVehicles * 0.095;
-     const newMoneySaved = state.moneySaved + currentSavedRate * dtSeconds;
+     // Money saved per tick = (trips/min / 60) * dtSeconds * timeSaved * 0.095;
+     const tripsCompletedThisTick = (throughput / 60) * dtSeconds;
+     const newMoneySaved = state.moneySaved + (tripsCompletedThisTick * timeSaved * 0.095);
 
      return {
        history,

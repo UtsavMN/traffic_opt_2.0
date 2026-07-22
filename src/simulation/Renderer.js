@@ -306,19 +306,7 @@ export class Renderer {
       const roadWidth = (int.maxLanes || 2) * LANE_WIDTH_PX();
       const patchRadius = (roadWidth * 0.5 + 1.2) * z;
 
-      // Draw seamless asphalt junction patch to merge incoming roads beautifully
-      if (z > 0.8) {
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, patchRadius, 0, Math.PI * 2);
-        ctx.fillStyle = '#2E3442'; // Matches local road color base
-        ctx.fill();
-        
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, patchRadius, 0, Math.PI * 2);
-        ctx.strokeStyle = '#1D212A';
-        ctx.lineWidth = 1 * z;
-        ctx.stroke();
-      }
+      // Removed seamless asphalt junction patch as per user request to make it minimal
 
       // Traffic lights — 4 signal heads
       const tl = int.trafficLight;
@@ -374,13 +362,35 @@ export class Renderer {
 
       // Traffic Police
       if (int.policeActive) {
-        ctx.fillStyle = '#3D9EFF'; // Police blue
+        const time = Date.now();
+        const isBlue = (time % 400) < 200;
+        
+        // Pulsing aura
+        const pulse = (Math.sin(time / 150) + 1) / 2; // 0 to 1
         ctx.beginPath();
-        ctx.arc(0, 0, 5 * this.camera.zoom, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 1.5 * this.camera.zoom;
+        ctx.arc(0, 0, 7 * z + pulse * 8 * z, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${isBlue ? '61,158,255' : '255,59,92'}, ${0.8 - pulse * 0.8})`;
+        ctx.lineWidth = 2.5 * z;
         ctx.stroke();
+
+        // Main body (flashing red/blue)
+        ctx.fillStyle = isBlue ? '#3D9EFF' : '#FF3B5C';
+        ctx.beginPath();
+        ctx.arc(0, 0, 7 * z, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 1.5 * z;
+        ctx.stroke();
+
+        // 'P' Badge
+        if (z > 1.2) {
+          ctx.fillStyle = '#FFFFFF';
+          ctx.font = `bold ${8 * z}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('P', 0, 1 * z);
+        }
       }
 
       ctx.restore();
@@ -647,9 +657,16 @@ export class Renderer {
         sway = Math.cos(p.animFrame * 0.7) * 0.5 * this.camera.zoom;
       }
 
+      // Shoulders/Body
       ctx.fillStyle = p.state === 'jaywalking' ? '#FF3B5C' : p.color;
       ctx.beginPath();
       ctx.arc(s.x + sway, s.y + bob, r, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Head
+      ctx.fillStyle = '#FFE0BD'; // skin tone
+      ctx.beginPath();
+      ctx.arc(s.x + sway, s.y + bob, r * 0.45, 0, Math.PI * 2);
       ctx.fill();
 
       if (p.state === 'waiting_at_crossing') {
@@ -676,10 +693,27 @@ export class Renderer {
       ctx.save();
       ctx.translate(s.x, s.y);
       ctx.rotate(c.heading);
+      const l = c.length * z * 0.5;
+      const w = c.width * z * 0.5;
+      
+      // Bike frame (thin metal line)
+      ctx.strokeStyle = '#888888';
+      ctx.lineWidth = Math.max(1, 1.5 * z);
+      ctx.beginPath();
+      ctx.moveTo(-l * 0.7, 0);
+      ctx.lineTo(l * 0.7, 0);
+      ctx.stroke();
+      
+      // Rider shoulders
       ctx.fillStyle = c.color;
       ctx.beginPath();
-      ctx.roundRect(-c.length * z * 0.5, -c.width * z * 0.5,
-                     c.length * z, c.width * z, 1);
+      ctx.arc(-l * 0.1, 0, w * 0.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Rider head
+      ctx.fillStyle = '#FFE0BD';
+      ctx.beginPath();
+      ctx.arc(-l * 0.1, 0, w * 0.4, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }

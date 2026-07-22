@@ -8,9 +8,7 @@ import { QApproximator } from './QApproximator.js';
  * Simple JS-based Q-value approximation for display purposes.
  */
 const ACTIONS = [
-  'KEEP_NS_GREEN', 'SWITCH_TO_NS_GREEN', 'SWITCH_TO_EW_GREEN',
-  'EXTEND_NS_5S', 'EXTEND_EW_5S', 'EMERGENCY_OVERRIDE_NS',
-  'EMERGENCY_OVERRIDE_EW', 'PEDESTRIAN_SCRAMBLE'
+  'KEEP_PHASE', 'SWITCH_PHASE', 'EXTEND_PHASE', 'PEDESTRIAN_SCRAMBLE'
 ];
 
 export class RLAgent {
@@ -136,5 +134,11 @@ export class RLAgent {
       epsilon: this.epsilon,
       shadowMode: this.shadowMode,
     };
+  }
+
+  loadWeights(weights) {
+    this.q.loadWeights(weights);
+    // When pre-trained weights are loaded, drastically drop exploration
+    this.epsilon = 0.1;
   }
 }

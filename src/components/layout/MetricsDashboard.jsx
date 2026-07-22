@@ -29,7 +29,7 @@ export default function MetricsDashboard() {
 
   const optColor = optimizationScore > 75 ? '#00E87A' : optimizationScore > 45 ? '#FFB400' : '#FF3B5C';
 
-  const SHOW_NEW_METRICS = false;
+  const SHOW_NEW_METRICS = true;
 
   return (
     <>

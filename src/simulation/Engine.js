@@ -76,8 +76,8 @@ export class Engine {
     // Selected intersection
     this.selectedIntersectionId = null;
 
-    // Web Worker for pathfinding (IIFE format for universal compatibility)
-    this._pfWorker = new Worker(new URL('../workers/pathfinder.worker.js', import.meta.url));
+    // Web Worker for pathfinding (module worker mode required for ES module imports)
+    this._pfWorker = new Worker(new URL('../workers/pathfinder.worker.js', import.meta.url), { type: 'module' });
     this._pfCallbacks = new Map();
     this._pfWorker.onmessage = ({ data }) => {
       const cb = this._pfCallbacks.get(data.id);
@@ -453,8 +453,8 @@ export class Engine {
     else if (r < 0.85) type = 'car';        // 15% Cars
     else if (r < 0.90) type = 'rickshaw';   // 5% Auto-rickshaws
     else if (r < 0.95) type = 'bus';        // 5% Buses
-    else if (r < 0.985) type = 'truck';     // 3.5% Trucks
-    else type = 'emergency';                // 1.5% Emergency vehicles (Ambulances)
+    else if (r < 0.995) type = 'truck';     // 4.5% Trucks
+    else type = 'emergency';                // 0.5% Emergency vehicles (Ambulances)
 
     const v = this.vehiclePool.acquire(type, route, this.graph);
     if (!v) { console.warn('[Spawn] Pool exhausted'); return; }
@@ -584,12 +584,25 @@ export class Engine {
     const freeFlowSpeedKmh = 40.0;
     const congestionLevel = Math.max(0, Math.min(100, (1.0 - (avgSpeedKmh / freeFlowSpeedKmh)) * 100));
 
+    let totalWait = 0;
+    let waitCount = 0;
+    let waitingCount = 0;
+    for (const v of this.vehicles) {
+      if (v.alive) {
+        totalWait += v.waitTime;
+        waitCount++;
+        if (v.speed < 2) waitingCount++;
+      }
+    }
+    const liveAvgWait = waitCount > 0 ? totalWait / waitCount : 0;
+
     if (this.onMetricsUpdate) {
       this.onMetricsUpdate({
-        vehicleCount: this.vehicles.length,
+        vehicleCount: waitCount,
+        waitingCount: waitingCount,
         pedestrianCount: this.pedestrians.length,
         cyclistCount: this.cyclists.length,
-        avgWaitTime: this.avgWait.avg,
+        avgWaitTime: liveAvgWait, // Live active wait time instead of despawned wait time
         throughput: this.completedTrips.length, // Vehicles completed in last 60s
         totalSpawned: this.totalSpawned,
         totalDespawned: this.totalDespawned,

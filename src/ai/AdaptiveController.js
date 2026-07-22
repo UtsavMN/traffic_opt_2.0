@@ -2,9 +2,7 @@ import { useAIStore } from '../store/aiStore.js';
 import { safeExecuteRLAction } from './SafetyComplianceWrapper.js';
 
 const ACTIONS = [
-  'KEEP_NS_GREEN', 'SWITCH_TO_NS_GREEN', 'SWITCH_TO_EW_GREEN',
-  'EXTEND_NS_5S', 'EXTEND_EW_5S', 'EMERGENCY_OVERRIDE_NS',
-  'EMERGENCY_OVERRIDE_EW', 'PEDESTRIAN_SCRAMBLE'
+  'KEEP_PHASE', 'SWITCH_PHASE', 'EXTEND_PHASE', 'PEDESTRIAN_SCRAMBLE'
 ];
 
 export class AdaptiveController {
@@ -206,39 +204,17 @@ export class AdaptiveController {
     const currentIsNS = tl.currentPhase === 'NS_GREEN';
 
     switch (actionName) {
-      case 'SWITCH_TO_NS_GREEN':
-        if (!currentIsNS) {
-          tl.forcePhase(4); // Force EW_YELLOW to transition to NS_GREEN safely
-        }
+      case 'SWITCH_PHASE':
+        tl.forcePhase(currentIsNS ? 1 : 4); // safely transition to yellow
         break;
-      case 'SWITCH_TO_EW_GREEN':
-        if (currentIsNS) {
-          tl.forcePhase(1); // Force NS_YELLOW to transition to EW_GREEN safely
-        }
-        break;
-      case 'EXTEND_NS_5S':
-        if (currentIsNS) {
-          tl.timer = Math.max(0, tl.timer - 5); // Subtract 5s to extend green phase
-        }
-        break;
-      case 'EXTEND_EW_5S':
-        if (!currentIsNS) {
-          tl.timer = Math.max(0, tl.timer - 5); // Subtract 5s to extend green phase
-        }
-        break;
-      case 'EMERGENCY_OVERRIDE_NS':
-        tl.emergencyOverrideDir = 'NS';
-        tl.emergencyTimer = 5;
-        break;
-      case 'EMERGENCY_OVERRIDE_EW':
-        tl.emergencyOverrideDir = 'EW';
-        tl.emergencyTimer = 5;
+      case 'EXTEND_PHASE':
+        tl.timer = Math.max(0, tl.timer - 5); // Subtract 5s to extend green phase
         break;
       case 'PEDESTRIAN_SCRAMBLE':
         // Safe scramble: force all vehicles to stop via ALL_RED phase
         tl.forcePhase(currentIsNS ? 2 : 5); 
         break;
-      case 'KEEP_NS_GREEN':
+      case 'KEEP_PHASE':
       default:
         // No-op: keep current state
         break;
@@ -249,8 +225,8 @@ export class AdaptiveController {
     const totalQ = int.getTotalQueue();
     const waitSeconds = int.totalWaitSeconds || 0;
     
-    // Base penalty for queue size and delays
-    let reward = -(totalQ * 0.3) - (waitSeconds * 0.05);
+    // Base penalty for queue size (prevent unbounded negative rewards from waitSeconds)
+    let reward = -(totalQ * 1.0);
 
     // Throughput reward (incentivizes clearing vehicles)
     reward += completedThisStep * 0.8;

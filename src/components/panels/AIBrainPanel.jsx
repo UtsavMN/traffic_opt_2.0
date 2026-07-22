@@ -1,20 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useAIStore } from '../../store/aiStore.js';
 import { useUIStore } from '../../store/uiStore.js';
-import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts';
+import { AreaChart, Area, ResponsiveContainer, YAxis, Tooltip } from 'recharts';
 
 const ACTION_LABELS = {
-  'KEEP_NS_GREEN': 'KEEP_NS',
-  'SWITCH_TO_NS_GREEN': 'NS_GREEN',
-  'SWITCH_TO_EW_GREEN': 'EW_GREEN',
-  'EXTEND_NS_5S': 'EXT_NS_5s',
-  'EXTEND_EW_5S': 'EXT_EW_5s',
-  'EMERGENCY_OVERRIDE_NS': 'EMRG_NS',
-  'EMERGENCY_OVERRIDE_EW': 'EMRG_EW',
+  'KEEP_PHASE': 'KEEP',
+  'SWITCH_PHASE': 'SWITCH',
+  'EXTEND_PHASE': 'EXTEND',
   'PEDESTRIAN_SCRAMBLE': 'PED_SCRAM',
   'EMRG_PREEMPT': 'EMRG_PRE',
-  'SWITCH_TO_EW': 'SW_EW',
-  'SWITCH_TO_NS': 'SW_NS',
   'FORCE_SWITCH': 'FORCE_SW'
 };
 
@@ -95,12 +89,23 @@ export default function AIBrainPanel({ getIntersectionData }) {
         <div className="panel-section__title">Reward Curve</div>
         <div className="sparkline-container">
           {chartData.length > 2 ? (
-            <ResponsiveContainer width="100%" height={60}>
-              <LineChart data={chartData}>
+            <ResponsiveContainer width="100%" height={80}>
+              <AreaChart data={chartData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorReward" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#9B6FFF" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#9B6FFF" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
                 <YAxis hide domain={['auto', 'auto']} />
-                <Line type="monotone" dataKey="v" stroke="#9B6FFF" strokeWidth={1.5}
-                  dot={false} isAnimationActive={false} />
-              </LineChart>
+                <Tooltip
+                  contentStyle={{ backgroundColor: 'rgba(17, 20, 25, 0.9)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, fontSize: 10 }}
+                  itemStyle={{ color: '#9B6FFF' }}
+                  labelStyle={{ display: 'none' }}
+                />
+                <Area type="monotone" dataKey="v" stroke="#9B6FFF" strokeWidth={2} fillOpacity={1} fill="url(#colorReward)"
+                  isAnimationActive={false} />
+              </AreaChart>
             </ResponsiveContainer>
           ) : (
             <div style={{ height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center',

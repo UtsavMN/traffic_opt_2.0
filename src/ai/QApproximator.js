@@ -56,4 +56,14 @@ export class QApproximator {
     this.bias[action] += lr * error;
     this.bias[action] = Math.max(-15.0, Math.min(15.0, this.bias[action]));
   }
+
+  loadWeights({ weights, bias }) {
+    if (weights) {
+      this.stateDim = weights.length / this.actionCount;
+      this.weights = new Float32Array(weights);
+    }
+    if (bias) {
+      this.bias = new Float32Array(bias);
+    }
+  }
 }

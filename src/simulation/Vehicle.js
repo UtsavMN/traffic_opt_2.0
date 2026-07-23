@@ -271,7 +271,7 @@ export class Vehicle {
           const stopMargin = 15 * CANVAS_SCALE;
           
           // Calculate required stopping distance dynamically based on vehicle physics (d = v^2 / 2a)
-          const brakeDecel = this.accel * 3; // hard braking rate used when desiredSpeed is 0
+          const brakeDecel = this.accel * 4.5; // hard braking rate used when desiredSpeed is 0
           const physicalBrakingDist = brakeDecel > 0 ? (this.speed * this.speed) / (2 * brakeDecel) : 0;
           const brakeDistance = Math.max(25 * CANVAS_SCALE, physicalBrakingDist + stopMargin);
           
@@ -337,9 +337,9 @@ export class Vehicle {
     }
     
     if (leadVehicle) {
-      // Safety distance based on speed (1.8s headway rule) scaled by weather friction lag
+      // Safety distance based on speed (1.0s headway rule) scaled by weather friction lag
       const weatherBrakeMult = Math.min(3.0, 1.0 / (weatherMult * weatherMult));
-      const safeDistance = (15 * CANVAS_SCALE + this.speed * 1.8) * weatherBrakeMult;
+      const safeDistance = (15 * CANVAS_SCALE + this.speed * 1.0) * weatherBrakeMult;
       const minSafetyGap = 3.0 * CANVAS_SCALE * weatherBrakeMult; // larger gap when wet/slippery
       
       if (minGap < minSafetyGap) {
@@ -384,8 +384,8 @@ export class Vehicle {
             }
           }
 
-          // Safety gap check: 35px ahead and 25px behind
-          if (gapAhead > 35 && gapBehind > 25) {
+          // Safety gap check: 15px ahead and 10px behind
+          if (gapAhead > 15 && gapBehind > 10) {
             targetLane = tLane;
             laneChangePossible = true;
             break;
@@ -405,7 +405,7 @@ export class Vehicle {
       this.state = 'moving';
     } else if (this.speed > desiredSpeed) {
       // Hard braking if speed is significantly higher than desired
-      const brakeFactor = desiredSpeed === 0 ? 3 : 1.5;
+      const brakeFactor = desiredSpeed === 0 ? 4.5 : 2.5;
       this.speed = Math.max(desiredSpeed, this.speed - this.accel * brakeFactor * dt);
       this.state = desiredSpeed < this.speed * 0.75 ? 'braking' : 'moving';
     }

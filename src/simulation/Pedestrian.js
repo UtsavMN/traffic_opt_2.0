@@ -12,7 +12,7 @@ export class Pedestrian {
     this.destination = new Vector2(destX, destY);
     this.walkSpeed = 30 + Math.random() * 20; // px/s
     this.state = 'walking'; // walking, waiting_at_crossing, crossing, jaywalking
-    this.compliance = 0.6 + Math.random() * 0.4; // 0.6-1.0
+    this.compliance = 0.3 + Math.random() * 0.6; // 0.3-0.9
     this.waitPatience = 8 + Math.random() * 12; // 8-20 seconds
     this.waitTime = 0;
     this.alive = true;

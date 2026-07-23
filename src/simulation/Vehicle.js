@@ -464,8 +464,8 @@ export class Vehicle {
   }
 
   _recordTripComplete() {
-    if (typeof window !== 'undefined' && window.__zenithMetrics) {
-      window.__zenithMetrics.recordTripComplete({
+    if (typeof window !== 'undefined' && window.__trafficOptMetrics) {
+      window.__trafficOptMetrics.recordTripComplete({
         waitTime: this.waitTime,
         travelTime: (performance.now() - (this.spawnTime || 0)) / 1000,
         distance: this.distanceTravelled,

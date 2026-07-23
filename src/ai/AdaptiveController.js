@@ -67,8 +67,8 @@ export class AdaptiveController {
         if (this.onDecision) this.onDecision(decision);
 
         // Global bridge for metrics
-        if (typeof window !== 'undefined' && window.__zenithAI) {
-          window.__zenithAI.logDecision({
+        if (typeof window !== 'undefined' && window.__trafficOptAI) {
+          window.__trafficOptAI.logDecision({
             time: new Date().toLocaleTimeString(),
             intersectionId: int.id,
             action: decision.action,

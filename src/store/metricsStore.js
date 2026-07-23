@@ -120,13 +120,13 @@ export const useMetricsStore = create((set, get) => ({
 // ── Global Bridges ─────────────────────────────────────
 // These allow the vanilla-JS engine to communicate with React state
 if (typeof window !== 'undefined') {
-  window.__zenithMetrics = {
+  window.__trafficOptMetrics = {
     recordTripComplete: (trip) => {
       useMetricsStore.getState().recordTripComplete(trip);
     },
   };
 
-  window.__zenithAI = {
+  window.__trafficOptAI = {
     logDecision: (decision) => {
       useMetricsStore.getState().logAIDecision(decision);
     },

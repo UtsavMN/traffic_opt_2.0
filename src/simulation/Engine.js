@@ -113,7 +113,7 @@ export class Engine {
       const intersection = new Intersection(id, node.x, node.y, node.zone);
       // Wire up green phase callback (decoupled from React in Intersection.js)
       intersection.onGreenPhaseEnd = (hadVehicles) => {
-        if (typeof window !== 'undefined' && window.__zenithMetrics) {
+        if (typeof window !== 'undefined' && window.__trafficOptMetrics) {
           useMetricsStore.getState().recordGreenPhase(hadVehicles);
         }
       };

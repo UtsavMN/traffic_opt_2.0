@@ -23,7 +23,7 @@ export function computeReward(prevState, nextState, action, info) {
     return waitReduction + balancePenalty + emergencyPenalty + starvationPenalty;
   }
 
-  // V2 Logic with info object (Phase 4 starvation + throughput fix)
+  // V2 Logic with info object (Phase 4 starvation + throughput fix + Pressure)
   const totalQueue = (info.qNS || 0) + (info.qEW || 0);
   const avgWait = totalQueue > 0 ? (info.waitSeconds || 0) / totalQueue : 0;
 
@@ -35,10 +35,18 @@ export function computeReward(prevState, nextState, action, info) {
   const STARVATION_PENALTY_WEIGHT = 0.05;
   const STARVATION_GRACE_STEPS = 20;
 
-  let reward = -(totalQueue * QUEUE_WEIGHT) - (avgWait * WAIT_WEIGHT);
+  // New in v10: Direct Pressure Reduction Reward
+  let pressureReduction = 0;
+  if (prevState && nextState) {
+    const prevPressure = prevState[0] + prevState[1];
+    const nextPressure = nextState[0] + nextState[1];
+    pressureReduction = (prevPressure - nextPressure) * 10.0; // Scaled up to be significant
+  }
+
+  let reward = -(totalQueue * QUEUE_WEIGHT) - (avgWait * WAIT_WEIGHT) + pressureReduction;
 
   // Emergency preemption bonus
-  if (action === 'EMERGENCY_OVERRIDE_NS' || action === 'EMERGENCY_OVERRIDE_EW') {
+  if (action === 'EMERGENCY_OVERRIDE_NS' || action === 'EMERGENCY_OVERRIDE_EW' || action === 'PEDESTRIAN_SCRAMBLE') {
     if (info.emergencyBlocked === true) {
       reward += EMERGENCY_BONUS;
     }
@@ -64,5 +72,5 @@ export function computeReward(prevState, nextState, action, info) {
     }
   }
 
-  return reward;
+  return Math.max(-50, Math.min(50, reward)); // Bound reward to prevent extreme spikes
 }

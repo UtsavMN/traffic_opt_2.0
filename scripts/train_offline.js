@@ -1,27 +1,21 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { RLAgent } from '../src/ai/RLAgent.js';
 
 /**
  * train_offline.js — Domain Randomization Training Loop
  * 
- * This script runs completely headless in Node.js, bypassing the browser DOM/Canvas.
- * It procedurally generates diverse mock intersection networks (grids, T-junctions, 
- * star graphs) and varied traffic conditions (spawn rates, vehicle mixes) to train 
- * the RLAgent on.
- * 
- * By training across these randomized domains, the agent learns a robust, 
- * generalized policy instead of overfitting to a single city's topology.
- * 
- * Usage: node scripts/train_offline.js
+ * Simulates a mathematical Queuing Theory model to rapidly train the 
+ * RLAgent using the pressure-based state encoder and reward function.
  */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEIGHTS_DIR = path.join(__dirname, '../public/weights');
 
-// Domain Randomization Parameters
-const EPISODES = 5000;
+const EPISODES = 1500;
 const STEPS_PER_EPISODE = 200;
+const ACTIONS = ['KEEP_PHASE', 'SWITCH_PHASE', 'EXTEND_PHASE', 'PEDESTRIAN_SCRAMBLE'];
 
 function generateRandomDomain() {
   const isGrid = Math.random() > 0.5;
@@ -29,7 +23,7 @@ function generateRandomDomain() {
     topology: isGrid ? 'grid' : 'random_graph',
     numNodes: Math.floor(Math.random() * 20) + 5,
     baseSpawnRate: (Math.random() * 1.5) + 0.5,
-    weatherMult: Math.random() > 0.8 ? (Math.random() * 0.5 + 0.5) : 1.0, // 20% chance of rain
+    weatherMult: Math.random() > 0.8 ? (Math.random() * 0.5 + 0.5) : 1.0,
     timeOfDay: Math.random() * 24
   };
 }
@@ -37,8 +31,20 @@ function generateRandomDomain() {
 class MockTrafficLight {
   constructor() {
     this.currentPhase = 'NS_GREEN';
-    this.phaseProgress = 0.5;
+    this.phaseProgress = 0;
     this.timer = 10;
+  }
+  
+  canPass(dir) {
+    if (this.currentPhase.includes('YELLOW') || this.currentPhase === 'ALL_RED') return false;
+    if (this.currentPhase.includes('NS') && (dir === 'N' || dir === 'S')) return true;
+    if (this.currentPhase.includes('EW') && (dir === 'E' || dir === 'W')) return true;
+    return false;
+  }
+  
+  switchPhase() {
+    this.currentPhase = this.currentPhase === 'NS_GREEN' ? 'EW_GREEN' : 'NS_GREEN';
+    this.phaseProgress = 0;
   }
 }
 
@@ -47,52 +53,122 @@ class MockEngine {
     this.weather = { speedMult: domain.weatherMult };
     this.timeOfDay = { normalized: domain.timeOfDay / 24 };
     this.sensorRealism = null;
-    this.graph = {
-      getNeighbors: (id) => {
-        // Mock a 4-way grid connection
-        return [`${id}_N`, `${id}_S`, `${id}_E`, `${id}_W`];
+    this.spawnRate = domain.baseSpawnRate;
+    
+    // Create random connections for pressure calculation
+    const connections = new Map();
+    for(let i=0; i<domain.numNodes; i++) {
+      const neighbors = [];
+      const numNeighbors = Math.floor(Math.random() * 3) + 2; // 2 to 4 neighbors
+      for(let j=0; j<numNeighbors; j++) {
+        let n = Math.floor(Math.random() * domain.numNodes);
+        if (n !== i) neighbors.push(`node_${n}`);
       }
+      connections.set(`node_${i}`, neighbors);
+    }
+    
+    this.graph = {
+      getNeighbors: (id) => connections.get(id) || []
     };
     
     this.intersections = new Map();
-    // Pre-populate some dummy neighbors to avoid undefined errors
     for(let i=0; i<domain.numNodes; i++) {
       const id = `node_${i}`;
       this.intersections.set(id, {
         id,
         trafficLight: new MockTrafficLight(),
-        queues: { N: Math.random()*15, S: Math.random()*15, E: Math.random()*15, W: Math.random()*15 },
-        pedestriansWaiting: Math.floor(Math.random() * 5),
-        emergencyApproaching: Math.random() > 0.95,
-        maxWait: Math.random() * 60,
-        getTotalQueue: function() { return this.queues.N + this.queues.S + this.queues.E + this.queues.W; }
+        queues: { N: 0, S: 0, E: 0, W: 0 },
+        pedestriansWaiting: 0,
+        emergencyApproaching: Math.random() > 0.98,
+        totalWaitSeconds: 0,
+        vehiclesPassedAccumulatedRL: 0,
+        maxWait: 0
       });
-      // Add fake neighbors
+    }
+  }
+
+  step() {
+    const dischargeRate = 2.0 * this.weather.speedMult; // Vehicles per step when green
+    
+    for (const [id, int] of this.intersections.entries()) {
+      // 1. Arrivals (Poisson-like)
+      const arrivalProb = 0.5 * this.spawnRate;
       ['N', 'S', 'E', 'W'].forEach(dir => {
-        const nid = `${id}_${dir}`;
-        this.intersections.set(nid, {
-          id: nid,
-          trafficLight: new MockTrafficLight(),
-          queues: { N: Math.random()*10, S: Math.random()*10, E: Math.random()*10, W: Math.random()*10 },
-        });
+        if (Math.random() < arrivalProb) {
+          int.queues[dir] += 1;
+        }
       });
+      
+      // 2. Discharges
+      ['N', 'S', 'E', 'W'].forEach(dir => {
+        if (int.trafficLight.canPass(dir) && int.queues[dir] > 0) {
+          const discharged = Math.min(int.queues[dir], dischargeRate);
+          int.queues[dir] -= discharged;
+          int.vehiclesPassedAccumulatedRL += discharged;
+        }
+      });
+      
+      // 3. Accumulate wait times
+      const totalQ = int.queues.N + int.queues.S + int.queues.E + int.queues.W;
+      int.totalWaitSeconds += totalQ * 1.0; // 1 second per step
+      if (totalQ > 0) {
+        int.maxWait += 1.0;
+      } else {
+        int.maxWait = 0;
+      }
+      
+      int.trafficLight.phaseProgress = Math.min(1.0, int.trafficLight.phaseProgress + 0.05);
     }
   }
 }
 
 async function train() {
-  console.log("=== Zenith RL Offline Training ===");
+  console.log("=== Zenith RL Offline Training (v10 Queuing Model) ===");
   console.log(`Starting domain-randomized training for ${EPISODES} episodes...`);
   
-  // NOTE: In a real run, you would dynamically import RLAgent from src/ai/RLAgent.js
-  // However, Node.js requires full ES module resolution or bundling for the src/ files.
-  // This script serves as the architectural scaffold for the data pipeline.
+  const rlAgent = new RLAgent();
+  rlAgent.shadowMode = false; // Enable active learning
   
-  for (let e = 0; e < 100; e++) { // Mock loop for demonstration
+  let totalReward = 0;
+  
+  for (let e = 0; e < EPISODES; e++) {
     const domain = generateRandomDomain();
     const engine = new MockEngine(domain);
-    // rlAgent.observe(id, engine);
-    // rlAgent.train();
+    
+    let episodeReward = 0;
+    
+    for (let step = 0; step < STEPS_PER_EPISODE; step++) {
+      engine.step();
+      
+      for (const [id, int] of engine.intersections.entries()) {
+        const { action } = rlAgent.observe(id, engine) || {};
+        
+        // Apply action to environment
+        if (action === 'SWITCH_PHASE') {
+          int.trafficLight.switchPhase();
+        } else if (action === 'EXTEND_PHASE') {
+          int.trafficLight.phaseProgress = Math.max(0, int.trafficLight.phaseProgress - 0.2);
+        } else if (action === 'PEDESTRIAN_SCRAMBLE') {
+           int.pedestriansWaiting = 0;
+           int.trafficLight.switchPhase(); // simplified scramble effect
+        }
+        
+        // Hack: read the last reward calculated during observe() to track progress
+        if (rlAgent.replay.buffer.length > 0) {
+          episodeReward += rlAgent.replay.buffer[rlAgent.replay.buffer.length - 1].reward;
+        }
+      }
+      
+      rlAgent.train();
+    }
+    
+    totalReward += episodeReward;
+    
+    if (e > 0 && e % 100 === 0) {
+      const avgRew = (totalReward / 100).toFixed(2);
+      console.log(`Episode ${e}/${EPISODES} | Avg Reward: ${avgRew} | Epsilon: ${rlAgent.epsilon.toFixed(3)} | Replay: ${rlAgent.replay.size}`);
+      totalReward = 0;
+    }
   }
   
   console.log("Training complete. Exporting generalized weights...");
@@ -101,17 +177,19 @@ async function train() {
     fs.mkdirSync(WEIGHTS_DIR, { recursive: true });
   }
   
-  // Mock weights export
-  const dummyWeights = {
-    stateDim: 10,
-    actionCount: 4,
-    weights: new Array(40).fill(0).map(() => (Math.random() - 0.5) * 0.1),
-    bias: [0, 0, 0, 0]
+  // Extract QApproximator weights
+  const exportData = {
+    stateDim: rlAgent.encoder.inputSize,
+    actionCount: rlAgent.actionCount,
+    weights: Array.from(rlAgent.q.weights || []),
+    bias: Array.from(rlAgent.q.bias || []),
+    trainingSteps: rlAgent.trainingSteps,
+    version: 'v10-pressure'
   };
   
   fs.writeFileSync(
     path.join(WEIGHTS_DIR, 'gnn_policy.json'), 
-    JSON.stringify(dummyWeights, null, 2)
+    JSON.stringify(exportData, null, 2)
   );
   
   console.log(`Weights saved to ${WEIGHTS_DIR}/gnn_policy.json`);

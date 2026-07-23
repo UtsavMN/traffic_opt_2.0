@@ -177,15 +177,8 @@ export class Vehicle {
     }
     
     const targetHeading = Math.atan2(headingDy, headingDx);
-    if (this.heading === undefined || this.speed < 0.1) {
-      this.heading = targetHeading;
-    } else {
-      let diff = targetHeading - this.heading;
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      const headingLerp = 1 - Math.pow(0.85, dt * 60);
-      this.heading += diff * headingLerp;
-    }
+    // Remove heading lag entirely so visual rotation perfectly matches geometry immediately
+    this.heading = targetHeading;
 
     const perpX = -Math.sin(this.heading);
     const perpY = Math.cos(this.heading);
@@ -334,7 +327,8 @@ export class Vehicle {
       
       // Must be in front of us
       if (other.segmentProgress > this.segmentProgress) {
-        const gap = (other.segmentProgress - this.segmentProgress) * edge.length - this.length;
+        // Bug Fix: Pos is center, so subtract both half-lengths for physical bumper-to-bumper gap
+        const gap = (other.segmentProgress - this.segmentProgress) * edge.length - (this.length + other.length) / 2;
         if (gap < minGap && gap > -10) {
           minGap = gap;
           leadVehicle = other;
@@ -380,11 +374,12 @@ export class Vehicle {
             if (other.currentEdgeId !== this.currentEdgeId || other.laneIndex !== tLane) continue;
 
             const dist = (other.segmentProgress - this.segmentProgress) * edge.length;
+            // Bug Fix: Subtract both half-lengths instead of just other.length
             if (dist > 0) {
-              const gap = dist - other.length;
+              const gap = dist - (this.length + other.length) / 2;
               if (gap < gapAhead) gapAhead = gap;
             } else {
-              const gap = -dist - this.length;
+              const gap = -dist - (this.length + other.length) / 2;
               if (gap < gapBehind) gapBehind = gap;
             }
           }

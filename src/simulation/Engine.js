@@ -407,15 +407,8 @@ export class Engine {
     const nodes = this.graph?.spawnableNodes; // pre-filtered, always connected
     if (!nodes || nodes.length < 2) return;
 
-    // Pick random origin near viewport (70%) or citywide (30%)
-    const useViewport = Math.random() < 0.7;
-    const bounds = this.renderer.getViewportBounds(200);
-    const viewportNodes = useViewport
-      ? nodes.filter(n => n.x > bounds.minX && n.x < bounds.maxX
-                       && n.y > bounds.minY && n.y < bounds.maxY)
-      : nodes;
-
-    const pool = viewportNodes.length >= 2 ? viewportNodes : nodes;
+    // Pick random origin citywide (prevent viewport-biased massive traffic jams)
+    const pool = nodes;
     
     let route = null;
     let origin = null;

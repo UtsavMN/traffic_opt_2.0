@@ -116,12 +116,15 @@ export class AdaptiveController {
     const currentQueue = currentIsNS ? nsQ : ewQ;
     const opposingQueue = currentIsNS ? ewQ : nsQ;
 
-    // Actuated Zero-Demand Hold Veto: if opposing direction is completely empty, lock current green!
-    // Prevent vetoing if we have exceeded MAX_GREEN, avoiding starvation of pedestrians/other movements.
+    // Actuated Zero-Demand Hold Veto: if both are empty, or opposing is empty (and we haven't hit MAX_GREEN yet)
     const isGreenPhase = phase === 'NS_GREEN' || phase === 'EW_GREEN';
-    if (isGreenPhase && opposingQueue === 0 && timeInPhase < this.MAX_GREEN) {
-      // Hold green: do not switch, do not trigger yellow
-      return null;
+    if (isGreenPhase) {
+      if (currentQueue === 0 && opposingQueue === 0) {
+        return null; // Both empty, lock green forever to avoid spam
+      }
+      if (opposingQueue === 0 && timeInPhase < this.MAX_GREEN) {
+        return null; // Opposing empty, hold green
+      }
     }
 
     // Active Reinforcement Learning Decision Path
@@ -231,10 +234,10 @@ export class AdaptiveController {
     // Throughput reward (incentivizes clearing vehicles)
     reward += completedThisStep * 0.8;
 
-    // Starvation penalty (non-linear escalation after 30 seconds of red light)
+    // Starvation penalty (only applies if there are actually vehicles waiting!)
     const tl = int.trafficLight;
-    const starvationNS = tl.redDurationNS > 30 ? Math.pow(tl.redDurationNS - 30, 1.2) * 0.15 : 0;
-    const starvationEW = tl.redDurationEW > 30 ? Math.pow(tl.redDurationEW - 30, 1.2) * 0.15 : 0;
+    const starvationNS = (tl.redDurationNS > 30 && int.getQueueNS() > 0) ? Math.pow(tl.redDurationNS - 30, 1.2) * 0.15 : 0;
+    const starvationEW = (tl.redDurationEW > 30 && int.getQueueEW() > 0) ? Math.pow(tl.redDurationEW - 30, 1.2) * 0.15 : 0;
     reward -= (starvationNS + starvationEW);
 
     if (decision.action === 'EMRG_PREEMPT') reward += 5;

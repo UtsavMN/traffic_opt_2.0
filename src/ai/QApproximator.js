@@ -59,7 +59,16 @@ export class QApproximator {
 
   loadWeights({ weights, bias }) {
     if (weights) {
-      this.stateDim = weights.length / this.actionCount;
+      const expectedStateDim = 10;
+      const expectedActionCount = 4;
+      if (this.actionCount !== expectedActionCount) {
+        throw new Error(`[QApproximator] Validation failed: expected actionCount=${expectedActionCount}, got ${this.actionCount}`);
+      }
+      const inferredStateDim = weights.length / this.actionCount;
+      if (inferredStateDim !== expectedStateDim) {
+        throw new Error(`[QApproximator] Validation failed: expected stateDim=${expectedStateDim} (for ${weights.length} weights and ${this.actionCount} actions), got ${inferredStateDim}`);
+      }
+      this.stateDim = inferredStateDim;
       this.weights = new Float32Array(weights);
     }
     if (bias) {

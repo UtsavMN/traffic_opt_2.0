@@ -124,6 +124,16 @@ if (typeof window !== 'undefined') {
     recordTripComplete: (trip) => {
       useMetricsStore.getState().recordTripComplete(trip);
     },
+    getMetrics: () => {
+      const state = useMetricsStore.getState();
+      return {
+        avgWait: state.avgWaitTime,
+        throughput: state.throughput,
+        avgSpeed: state.avgSpeedKmh,
+        greenEfficiency: state.greenEfficiency,
+        activeCount: state.vehicleCount
+      };
+    }
   };
 
   window.__trafficOptAI = {

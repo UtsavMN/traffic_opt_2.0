@@ -28,6 +28,7 @@ export function useSimulation() {
     if (!canvasRef.current) return;
     const engine = new Engine(canvasRef.current);
     engineRef.current = engine;
+    window.__trafficOptEngine = engine;
 
     // AI Controller
     const controller = new AdaptiveController();

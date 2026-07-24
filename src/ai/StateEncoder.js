@@ -67,11 +67,11 @@ export class StateEncoder {
     const avgNeighborOpposing = downstreamCount > 0 ? sumNeighborOpposing / downstreamCount : 0;
 
     // Context features
-    const pedWaiting = Math.min(1, int.pedestriansWaiting / 10);
+    const pedWaiting = int.pedestriansWaiting > 0 ? 1 : 0;
     const emergency = int.emergencyApproaching ? 1 : 0;
     const weatherFactor = 1 - engine.weather.speedMult;
     const tod = engine.timeOfDay.normalized;
-    const starvationFlag = (int.maxWait || 0) > 30 ? 1 : 0;
+    const starvationFlag = (tl.redDurationNS > 30 || tl.redDurationEW > 30) ? 1 : 0;
 
     return new Float32Array([
       normActive,

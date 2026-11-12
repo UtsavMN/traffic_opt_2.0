@@ -221,6 +221,8 @@ export class Vehicle {
     if (!this.alive) return;
     const edge = this.currentEdge;
     if (!edge) { this.alive = false; return; }
+    const from = this.graph.nodes.get(edge.from);
+    const to = this.graph.nodes.get(edge.to);
 
     const speedLimit = ((edge.speedLimit || 40) * 1000 / 3600) * CANVAS_SCALE * weatherMult;
     const currentV0 = Math.min(this.v0, speedLimit);

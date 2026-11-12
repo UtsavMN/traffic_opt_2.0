@@ -244,9 +244,11 @@ export class Vehicle {
       }
     }
 
-    // --- 2. Intersection Control (Virtual Lead Vehicle) ---
+    // --- 2. Intersection Control & Yellow Box Junction Clearance ---
     let intersectionGap = Infinity;
     let stopAtIntersection = false;
+    let distToIntersection = Infinity;
+    let stopLineDist = 15;
     
     const nextIntersection = this.nextNode;
     if (nextIntersection) {
@@ -255,26 +257,47 @@ export class Vehicle {
         const dir = this._getDirection();
         const lightColor = dir ? (dir === 'N' || dir === 'S' ? intObj.trafficLight.getColorNS() : intObj.trafficLight.getColorEW()) : 'GREEN';
         
-        // Always stop for RED or YELLOW unless it's a siren
-        if (lightColor !== 'GREEN' && !this.sirenActive) {
-          stopAtIntersection = true;
-        }
-        
-        // Also stop if intersection is physically blocked by cross traffic
-        if (!stopAtIntersection && this.segmentProgress > 0.8) {
-           const centerOccupants = spatialGrid.query(intObj.x, intObj.y, 25);
-           for (const occupant of centerOccupants) {
-             if (occupant.id === this.id || !occupant.alive) continue;
-             if (occupant.currentEdgeId !== this.currentEdgeId) {
-               stopAtIntersection = true;
-               break;
-             }
-           }
-        }
-        
-        if (stopAtIntersection) {
-          const distToIntersection = (1 - this.segmentProgress) * edge.length;
-          intersectionGap = distToIntersection - (this.length / 2);
+        // Stop line is located before the junction center
+        stopLineDist = Math.max(14, (intObj.maxLanes || 2) * LANE_WIDTH_PX() * 0.65);
+        distToIntersection = (1 - this.segmentProgress) * edge.length;
+        const distToStopLine = distToIntersection - stopLineDist;
+
+        // RULE 1: Only vehicles BEFORE the stop line (distToStopLine > 0) can stop.
+        // Once a vehicle has crossed the stop line (distToStopLine <= 0), it has entered
+        // the intersection box and MUST NEVER STOP — it has right-of-way to clear the junction!
+        if (distToStopLine > 0) {
+          // Check Traffic Signal: Stop for RED or YELLOW unless ambulance with active siren
+          if (lightColor !== 'GREEN' && !this.sirenActive) {
+            stopAtIntersection = true;
+          }
+
+          // RULE 2: Yellow Box Rule ("Do Not Block The Box"):
+          // If light is GREEN, check if an intersecting cross-traffic vehicle is clearing the box.
+          // Arriving vehicles wait BEHIND THE STOP LINE (not inside the intersection).
+          if (!stopAtIntersection && distToStopLine < 30 * CANVAS_SCALE) {
+            const isMyPhaseNS = (dir === 'N' || dir === 'S');
+            const centerOccupants = spatialGrid.query(intObj.x, intObj.y, stopLineDist * 0.85);
+            for (const occupant of centerOccupants) {
+              if (occupant.id === this.id || !occupant.alive) continue;
+              // Opposing traffic on the same corridor (NS or EW) is NOT cross-traffic!
+              const occDir = occupant._getDirection();
+              const isOccPhaseNS = (occDir === 'N' || occDir === 'S');
+              // Only hold if an actual cross-phase vehicle is clearing or blocking the box
+              if (isMyPhaseNS !== isOccPhaseNS && occupant.speed < 4.0) {
+                stopAtIntersection = true;
+                break;
+              }
+            }
+          }
+
+          if (stopAtIntersection) {
+            // Vehicle smoothly comes to rest behind the stop line
+            intersectionGap = Math.max(0.5, distToStopLine - (this.length / 2));
+          }
+        } else {
+          // Vehicle is INSIDE the intersection past the stop line.
+          // NEVER STOP! Accelerate through with right-of-way to clear the box.
+          stopAtIntersection = false;
         }
       }
     }
@@ -288,7 +311,18 @@ export class Vehicle {
       deltaV = this.speed - leadVehicle.speed;
     } else if (stopAtIntersection && intersectionGap < Infinity) {
       effectiveGap = intersectionGap;
-      deltaV = this.speed - 0; // Virtual vehicle is stopped
+      deltaV = this.speed - 0; // Virtual vehicle at stop line
+    }
+
+    // --- 2.1 Anti-Gridlock Watchdog ---
+    // In real Bangalore traffic, congestion occurs on approaches, not 4-way deadlocks in empty junctions.
+    // If any vehicle is in or near an intersection and has been delayed > 2.0s,
+    // force clearance right-of-way to prevent cascading gridlock!
+    if (distToIntersection < stopLineDist * 1.8 && this.waitTime > 2.0) {
+      effectiveGap = Infinity;
+      if (this.speed < 5 * CANVAS_SCALE) {
+        this.speed = Math.max(this.speed, 6 * CANVAS_SCALE); // Crawl forward to clear the box
+      }
     }
 
     // --- 3. Intelligent Driver Model (IDM) Physics ---

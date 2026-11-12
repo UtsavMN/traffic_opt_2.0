@@ -269,6 +269,50 @@ export class Vehicle {
           // Check Traffic Signal: Stop for RED or YELLOW unless ambulance with active siren
           if (lightColor !== 'GREEN' && !this.sirenActive) {
             stopAtIntersection = true;
+
+            // 1. Indian Free Left Turn Rule:
+            // Vehicles in the leftmost lane (Lane 0) making a left turn can proceed through RED
+            // if the immediate entry is clear of cross traffic.
+            if (this.laneIndex === 0 && this.routeIndex + 2 < this.route.length) {
+              const nextNode = this.graph.nodes.get(this.route[this.routeIndex + 1]);
+              const afterNode = this.graph.nodes.get(this.route[this.routeIndex + 2]);
+              if (from && nextNode && afterNode) {
+                const dx1 = nextNode.x - from.x, dy1 = nextNode.y - from.y;
+                const dx2 = afterNode.x - nextNode.x, dy2 = afterNode.y - nextNode.y;
+                const cross = dx1 * dy2 - dy1 * dx2; // negative = left turn in screen coords
+                if (cross < -0.1) {
+                  const boxOccupants = spatialGrid.query(intObj.x, intObj.y, stopLineDist * 0.7);
+                  let crossBlocked = false;
+                  for (const o of boxOccupants) {
+                    if (o.id !== this.id && o.alive && o.speed > 2.0) { crossBlocked = true; break; }
+                  }
+                  if (!crossBlocked) {
+                    stopAtIntersection = false; // Free Left Turn granted!
+                  }
+                }
+              }
+            }
+
+            // 2. Delayed / Jammed Signal Courtesy Adjustment:
+            // If stopped at red for > 15s and the junction is completely clear of cross traffic,
+            // vehicles adjust and treat it like an all-way stop rather than freezing indefinitely!
+            if (this.waitTime > 15.0 && distToStopLine < 10 * CANVAS_SCALE) {
+              const boxOccupants = spatialGrid.query(intObj.x, intObj.y, stopLineDist * 0.85);
+              let boxHasCross = false;
+              const isMyPhaseNS = (dir === 'N' || dir === 'S');
+              for (const o of boxOccupants) {
+                if (o.id !== this.id && o.alive) {
+                  const oDir = o._getDirection();
+                  if ((oDir === 'N' || oDir === 'S') !== isMyPhaseNS) {
+                    boxHasCross = true;
+                    break;
+                  }
+                }
+              }
+              if (!boxHasCross) {
+                stopAtIntersection = false; // Clear deserted intersection
+              }
+            }
           }
 
           // RULE 2: Yellow Box Rule ("Do Not Block The Box"):
@@ -328,13 +372,19 @@ export class Vehicle {
     // --- 3. Intelligent Driver Model (IDM) Physics ---
     let dv_dt = 0;
     
+    // Police discharge boost & queue compaction:
+    const isUnderPolice = nextIntersection && intersections.get(this.route[this.routeIndex + 1])?.policeActive;
+    const accelCurrent = isUnderPolice ? this.a * 1.5 : this.a;
+    const headwayCurrent = isUnderPolice ? 0.6 : this.T;
+    const minDistance = this.speed < 2 ? 3.5 * CANVAS_SCALE : this.s0;
+
     if (effectiveGap === Infinity) {
       // Free road term
-      dv_dt = this.a * (1 - Math.pow(this.speed / currentV0, 4));
+      dv_dt = accelCurrent * (1 - Math.pow(this.speed / currentV0, 4));
     } else {
       // Interaction term
-      const s_star = this.s0 + Math.max(0, (this.speed * this.T) + (this.speed * deltaV) / (2 * Math.sqrt(this.a * this.b)));
-      dv_dt = this.a * (1 - Math.pow(this.speed / currentV0, 4) - Math.pow(s_star / Math.max(0.1, effectiveGap), 2));
+      const s_star = minDistance + Math.max(0, (this.speed * headwayCurrent) + (this.speed * deltaV) / (2 * Math.sqrt(accelCurrent * this.b)));
+      dv_dt = accelCurrent * (1 - Math.pow(this.speed / currentV0, 4) - Math.pow(s_star / Math.max(0.1, effectiveGap), 2));
     }
 
     // Update speed

@@ -40,21 +40,35 @@ export class Intersection {
   update(dt) {
     if (this.policeActive) {
       this.policeOverrideTimer += dt;
-      if (this.policeOverrideTimer >= 60) {
-        // Max timer exceeded — force deactivate to prevent cross-traffic starvation
+      // Traffic police dynamically manages and alternates corridors (max 15s per phase)
+      // Guarantees that neither corridor is ever locked on eternal red!
+      if (this.policeOverrideTimer >= 15) {
+        this.policeOverrideTimer = 0;
+        const nsQ = this.getQueueNS();
+        const ewQ = this.getQueueEW();
+        const nextDir = nsQ >= ewQ ? 'N' : 'E';
+        if (nextDir !== this.policeDirection) {
+          this.policeDirection = nextDir;
+          const currentIsNS = this.trafficLight.currentPhase.includes('NS');
+          if ((nextDir === 'N' && !currentIsNS) || (nextDir === 'E' && currentIsNS)) {
+            this.trafficLight.forcePhase(currentIsNS ? 1 : 3); // Brisk yellow transition
+          }
+        }
+      } else if (this.policeOverrideTimer === dt && this.policeDirection) {
+        // Initial dispatch priority
+        const currentIsNS = this.trafficLight.currentPhase.includes('NS');
+        if ((this.policeDirection === 'N' && !currentIsNS) || (this.policeDirection === 'E' && currentIsNS)) {
+          this.trafficLight.forcePhase(currentIsNS ? 1 : 3);
+        }
+      }
+
+      // Automatically step down once queues normalize
+      if (this.getTotalQueue() === 0 && this.policeOverrideTimer > 5) {
         this.policeActive = false;
         this.policeOverrideTimer = 0;
-      } else if (this.policeDirection && (
-        (this.policeDirection === 'N' && this.getQueueNS() === 0) ||
-        (this.policeDirection === 'E' && this.getQueueEW() === 0)
-      )) {
-        this.policeActive = false; // Corridor queues cleared
-        this.policeOverrideTimer = 0;
-      } else {
-        this.trafficLight.forceGreen(this.policeDirection);
       }
     }
-    
+
     this.trafficLight.update(dt);
     
     // Green Efficiency Tracking (only for active intersections)

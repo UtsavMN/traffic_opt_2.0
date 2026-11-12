@@ -56,9 +56,10 @@ export class AdaptiveController {
     for (const [id, int] of engine.intersections) {
       if (int.aiCooldown > 0) continue;
 
-      // Allow AI full actuated authority
-      if (int.trafficLight.greenDuration !== 9999) {
-        int.trafficLight.setGreenDuration(9999);
+      // Ensure physical traffic light has balanced realistic cycle limits (15s to 25s).
+      // Never lock traffic lights to 9999s! Traffic lights MUST always cycle even in jams!
+      if (int.trafficLight.greenDuration > 25 || int.trafficLight.greenDuration < 10) {
+        int.trafficLight.setGreenDuration(18);
       }
 
       const decision = this._evaluate(int, engine);
@@ -172,6 +173,17 @@ export class AdaptiveController {
         intersectionId: int.id,
         action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
         reason: `Empty current approach (0) vs opposing (${opposingQueue})`,
+        time: Date.now(),
+      };
+    }
+
+    // Rule 1.5: Starvation Guard — If opposing vehicles have been waiting > 12s, switch immediately!
+    if (int.maxWait > 12.0 && opposingQueue > 0) {
+      tl.forcePhase(currentIsNS ? 1 : 3);
+      return {
+        intersectionId: int.id,
+        action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
+        reason: `Starvation guard: Opposing max wait ${int.maxWait.toFixed(1)}s > 12s`,
         time: Date.now(),
       };
     }

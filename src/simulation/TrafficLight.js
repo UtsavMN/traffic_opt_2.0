@@ -82,9 +82,10 @@ export class TrafficLight {
   }
 
   setGreenDuration(d) {
-    this.greenDuration = d;
-    this.phaseDurations[0] = d;
-    this.phaseDurations[2] = d;
+    const clamped = Math.max(10, Math.min(25, d));
+    this.greenDuration = clamped;
+    this.phaseDurations[0] = clamped;
+    this.phaseDurations[2] = clamped;
   }
 
   canPassNS() {

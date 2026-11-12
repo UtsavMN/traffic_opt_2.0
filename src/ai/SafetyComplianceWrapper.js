@@ -1,5 +1,5 @@
 export const MIN_GREEN_S = 10;  // 10s minimum green to prevent rapid flapping
-export const MAX_GREEN_S = 60;  // 60s maximum green to prevent starvation
+export const MAX_GREEN_S = 25;  // 25s maximum green — guarantees light cycles regularly even in heavy jams
 export const HYSTERESIS_MARGIN = 0.75; // Q-margin required for switch
 
 /**

@@ -28,6 +28,7 @@ export function useSimulation() {
     if (!canvasRef.current) return;
     const engine = new Engine(canvasRef.current);
     engineRef.current = engine;
+    window.__sancharEngine = engine;
     window.__trafficOptEngine = engine;
 
     // AI Controller
@@ -41,6 +42,20 @@ export function useSimulation() {
     // Multi-Agent Coordinator (shadow/active RL)
     const coordinator = new MultiAgentCoordinator();
     coordinatorRef.current = coordinator;
+
+    // Load pre-trained Sanchar neural weights
+    fetch('/weights/gnn_policy.json')
+      .then(res => res.ok ? res.json() : null)
+      .then(weights => {
+        if (weights) {
+          coordinator.rlAgent.loadWeights(weights);
+          updateAIStats(coordinator.stats);
+          console.log('[Sanchar AI] Pre-trained neural weights loaded into coordinator');
+        }
+      })
+      .catch(err => {
+        console.warn('[Sanchar AI] Note: could not fetch weights:', err);
+      });
 
     // Set AI controller on engine and bind coordinator
     controller.coordinator = coordinator;
@@ -109,6 +124,17 @@ export function useSimulation() {
   const setTimeOfDay = useCallback((hour) => {
     if (engineRef.current) {
       engineRef.current.setTimeOfDay(hour);
+      useSimStore.getState().setTimeOfDay(hour);
+    }
+  }, []);
+
+  const setTimeLocked = useCallback((locked, hour = null) => {
+    if (engineRef.current) {
+      engineRef.current.setTimeLocked(locked, hour);
+      useSimStore.getState().setTimeLocked(locked);
+      if (hour !== null) {
+        useSimStore.getState().setTimeOfDay(hour);
+      }
     }
   }, []);
 
@@ -163,6 +189,7 @@ export function useSimulation() {
     setSpawnRate,
     setWeather,
     setTimeOfDay,
+    setTimeLocked,
     changeScenario,
     triggerAccident,
     handleCanvasClick,
@@ -170,3 +197,7 @@ export function useSimulation() {
     getIntersectionData,
   };
 }
+
+
+
+

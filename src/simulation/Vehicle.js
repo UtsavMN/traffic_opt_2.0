@@ -1,11 +1,6 @@
 import { Vector2 } from './Vector2.js';
 import { LANE_WIDTH_PX, VEHICLE_DIMS, CANVAS_SCALE } from '../constants.js';
 
-/**
- * Vehicle — Car/Bus/Truck/Motorcycle/Emergency entity
- * Moves along A* routes between intersections with realistic physics
- */
-
 const CAR_COLORS = [
   '#3D9EFF','#00E87A','#FFB400','#FF3B5C','#9B6FFF',
   '#E8EAED','#5A8FCC','#CC7A5A','#6FCF97','#BB86FC',
@@ -16,11 +11,9 @@ let vehicleIdCounter = 0;
 
 export class Vehicle {
   constructor(type, route, graph) {
-    // Support no-arg construction for pool pre-allocation
     if (type && route && graph) {
       this.init(type, route, graph);
     } else {
-      // Uninitialized placeholder — will be init()'d by pool.acquire()
       this.alive = false;
       this.pos = new Vector2(0, 0);
       this.route = null;
@@ -35,19 +28,19 @@ export class Vehicle {
     this.length = dim.length * CANVAS_SCALE;
     this.width = dim.width * CANVAS_SCALE;
     
-    // Phase 1 Safety Enforcer: Vehicle width must not exceed 80% of lane width
-    if (this.width > 0.8 * LANE_WIDTH_PX()) {
-      console.warn(`[Physics] Vehicle ${type} width (${this.width.toFixed(1)}px) exceeds 80% of lane width (${(0.8 * LANE_WIDTH_PX()).toFixed(1)}px)!`);
-    }
-
+    // Physics parameters for IDM
     const baseSpeedPxS = (dim.maxSpeed * 1000 / 3600) * CANVAS_SCALE;
-    this.maxSpeed = baseSpeedPxS * (0.85 + Math.random() * 0.3);
-    this.accel = dim.accel * CANVAS_SCALE; // Accel in pixels/s^2
+    this.v0 = baseSpeedPxS * (0.85 + Math.random() * 0.3); // Desired speed
+    this.a = dim.accel * CANVAS_SCALE; // Max acceleration
+    this.b = dim.accel * 1.5 * CANVAS_SCALE; // Comfortable deceleration
+    this.T = 1.2; // Safe time headway (seconds)
+    this.s0 = 10 * CANVAS_SCALE; // Minimum bumper-to-bumper distance (pixels)
+
     this.color = CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
     if (type === 'bus') this.color = '#FFB400';
     if (type === 'truck') this.color = '#8B8F98';
     if (type === 'motorcycle') this.color = '#E8EAED';
-    if (type === 'rickshaw') this.color = '#2E7D32'; // Signature green base for auto rickshaws
+    if (type === 'rickshaw') this.color = '#2E7D32';
     if (type === 'emergency') {
       this.color = '#FF3B5C';
       this.sirenActive = true;
@@ -55,40 +48,34 @@ export class Vehicle {
       this.sirenActive = false;
     }
     
-    this.route = route;       // array of intersection IDs
-    this.routeIndex = 0;      // current segment index
-    this.segmentProgress = 0; // 0-1 along current edge
+    this.route = route;
+    this.routeIndex = 0;
+    this.segmentProgress = 0;
     this.graph = graph;
     this.spawnTime = performance.now();
     
-    // Physics
+    // State
     if (!this.pos) this.pos = new Vector2(0, 0);
     this.pos.x = 0;
     this.pos.y = 0;
     this.heading = 0;
     this.speed = 0;
-    this.state = 'moving'; // moving, braking, stopped, turning
+    this.state = 'moving';
     this.waitTime = 0;
     this.distanceTravelled = 0;
     this.alive = true;
-    this.inViewport = false;
-    this.intersectionWaitTime = 0;
+    this.inViewport = true; // No more macro/micro split
     
-    // Lane offset
-    this.laneOffset = undefined;
     this.currentEdgeId = null;
+    this.laneIndex = undefined;
+    this.laneOffset = undefined;
     
-    // Initialize position
-    this._updatePosition();
+    this._updatePosition(0);
   }
 
   get currentEdge() {
     if (this.routeIndex >= this.route.length - 1) return null;
     return this.graph.getEdge(this.route[this.routeIndex], this.route[this.routeIndex + 1]);
-  }
-
-  get currentNode() {
-    return this.graph.nodes.get(this.route[this.routeIndex]);
   }
 
   get nextNode() {
@@ -109,7 +96,7 @@ export class Vehicle {
     return dy > 0 ? 'S' : 'N';
   }
 
-  _updatePosition(dt = 0.016) {
+  _updatePosition(dt) {
     const edge = this.currentEdge;
     if (!edge) {
       this.alive = false;
@@ -119,27 +106,23 @@ export class Vehicle {
     const to = this.graph.nodes.get(edge.to);
     if (!from || !to) return;
 
-    // Assign lane if entering new edge
     if (this.currentEdgeId !== edge.id) {
       this.currentEdgeId = edge.id;
+      // Default to rightmost lane, or randomize safely
       this.laneIndex = this.type === 'bus' ? edge.lanes - 1 : Math.floor(Math.random() * edge.lanes);
       if (this.sirenActive) this.laneIndex = Math.floor(Math.random() * edge.lanes);
-      
-      // Calibrated sub-lane offset for motorcycles (sub-lane filtering)
-      this.subLaneIndex = this.type === 'motorcycle' ? (Math.random() * 0.6 - 0.3) : 0;
     }
-    const subOffset = this.type === 'motorcycle' ? (this.subLaneIndex || 0) * LANE_WIDTH_PX() : 0;
-    const targetLaneOffset = (this.laneIndex - edge.lanes / 2 + 0.5) * LANE_WIDTH_PX() + subOffset;
     
-    // Smooth lane keeping (frame-rate independent)
+    const targetLaneOffset = (this.laneIndex - edge.lanes / 2 + 0.5) * LANE_WIDTH_PX();
+    
     if (this.laneOffset === undefined) this.laneOffset = targetLaneOffset;
-    const laneLerp = 1 - Math.pow(0.9, dt * 60);
+    // Smooth lane transition
+    const laneLerp = dt > 0 ? 1 - Math.pow(0.9, dt * 60) : 1;
     this.laneOffset += (targetLaneOffset - this.laneOffset) * laneLerp;
 
     const geom = edge.geometry;
     let x = from.x, y = from.y;
     let headingDx = to.x - from.x, headingDy = to.y - from.y;
-    let dirX = 0, dirY = 0;
     
     if (geom && geom.length >= 2) {
       const targetDist = this.segmentProgress * edge.length;
@@ -176,10 +159,7 @@ export class Vehicle {
       y = from.y + dy * this.segmentProgress;
     }
     
-    const targetHeading = Math.atan2(headingDy, headingDx);
-    // Remove heading lag entirely so visual rotation perfectly matches geometry immediately
-    this.heading = targetHeading;
-
+    this.heading = Math.atan2(headingDy, headingDx);
     const perpX = -Math.sin(this.heading);
     const perpY = Math.cos(this.heading);
     
@@ -189,253 +169,161 @@ export class Vehicle {
 
   update(dt, intersections, spatialGrid, weatherMult = 1, isNight = false) {
     if (!this.alive) return;
-    
     const edge = this.currentEdge;
     if (!edge) { this.alive = false; return; }
-    
+
     const speedLimit = ((edge.speedLimit || 40) * 1000 / 3600) * CANVAS_SCALE * weatherMult;
-    let desiredSpeed = Math.min(this.maxSpeed, speedLimit);
-
-    // Apply Greenshields density scaling to desiredSpeed (prevents micro/macro boundary speed discontinuity)
-    desiredSpeed *= this._getDensitySpeedMultiplier(edge);
+    const currentV0 = Math.min(this.v0, speedLimit);
     
-    // MACRO SIMULATION (Out of Focus Area)
-    if (!this.inViewport) {
-      this._macroUpdate(dt, intersections, edge, desiredSpeed);
-      return;
-    }
-
-    // Dynamic Lane Changing check
-    if (edge.lanes > 1 && this.segmentProgress > 0.15 && this.segmentProgress < 0.85 && Math.random() < 0.05) {
-      this._checkDynamicLaneChange(edge, spatialGrid);
-    }
-    
-    // Update intersection wait timer
-    if (this.segmentProgress > 0.75 && this.speed < 1.5) {
-      this.intersectionWaitTime += dt;
-    } else {
-      this.intersectionWaitTime = 0;
-    }
-
-    // MICRO SIMULATION (Inside Focus Area)
-    
-    // Check traffic light at next intersection
-    const nextIntersection = this.nextNode;
-    if (nextIntersection && this.segmentProgress > 0.6) {
-      const intObj = intersections.get(this.route[this.routeIndex + 1]);
-      if (intObj) {
-        const dir = this._getDirection();
-        const lightColor = dir ? (dir === 'N' || dir === 'S' ? intObj.trafficLight.getColorNS() : intObj.trafficLight.getColorEW()) : 'GREEN';
-        
-        let lightCanPass = (lightColor === 'GREEN');
-        if (lightColor === 'YELLOW') {
-          const rem = (1 - this.segmentProgress) * edge.length;
-          // If we are close enough to clear, we can pass; otherwise, we must stop!
-          lightCanPass = (rem < 20 * CANVAS_SCALE);
-        }
-
-        // Even if light is green, if there is a vehicle currently in the intersection center, we must stop to prevent T-bone collisions!
-        // We limit this check to segmentProgress < 0.95 (before entering the intersection) to prevent mutual lock deadlocks.
-        let intersectionBlocked = false;
-        if (this.segmentProgress > 0.8 && this.segmentProgress < 0.95) {
-          intersectionBlocked = this._isIntersectionCenterOccupied(intObj, spatialGrid);
-        }
-
-        // Yellow Box Junction Rule: Do not enter intersection if downstream lane is fully congested
-        let downstreamBlocked = false;
-        if (this.segmentProgress > 0.75 && this.segmentProgress < 0.95 && this.routeIndex + 2 < this.route.length) {
-          const nextEdge = this.graph.getEdge(this.route[this.routeIndex + 1], this.route[this.routeIndex + 2]);
-          if (nextEdge) {
-            const targetLane = Math.min(this.laneIndex, nextEdge.lanes - 1);
-            const nextNodeObj = this.nextNode;
-            if (nextNodeObj) {
-              const nearbyNext = spatialGrid.query(nextNodeObj.x, nextNodeObj.y, 45);
-              for (const other of nearbyNext) {
-                if (other.id === this.id || !other.alive) continue;
-                if (other.currentEdgeId === nextEdge.id && other.laneIndex === targetLane) {
-                  const distFromStart = other.segmentProgress * nextEdge.length;
-                  if (distFromStart < this.length + 12 && other.speed < 1.5) {
-                    downstreamBlocked = true;
-                    break;
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        const shouldStop = (!lightCanPass && !this.sirenActive) || intersectionBlocked || downstreamBlocked;
-
-        if (shouldStop) {
-          const rem = (1 - this.segmentProgress) * edge.length;
-          const stopMargin = 15 * CANVAS_SCALE;
-          
-          // Calculate required stopping distance dynamically based on vehicle physics (d = v^2 / 2a)
-          const brakeDecel = this.accel * 4.5; // hard braking rate used when desiredSpeed is 0
-          const physicalBrakingDist = brakeDecel > 0 ? (this.speed * this.speed) / (2 * brakeDecel) : 0;
-          const brakeDistance = Math.max(25 * CANVAS_SCALE, physicalBrakingDist + stopMargin);
-          
-          if (rem < brakeDistance) {
-            // Smoothly decelerate as we approach the stop margin
-            const interp = Math.max(0, (rem - stopMargin) / (brakeDistance - stopMargin));
-            desiredSpeed = Math.min(desiredSpeed, desiredSpeed * interp);
-            if (rem < stopMargin) desiredSpeed = 0;
-          }
-        }
-      }
-    }
-    
-    // Turning deceleration: check turn angle to next segment when approaching intersection
-    if (this.routeIndex + 2 < this.route.length && this.segmentProgress > 0.8) {
-      const nextEdge = this.graph.getEdge(this.route[this.routeIndex + 1], this.route[this.routeIndex + 2]);
-      if (nextEdge) {
-        const from1 = this.graph.nodes.get(edge.from);
-        const to1 = this.graph.nodes.get(edge.to);
-        const from2 = this.graph.nodes.get(nextEdge.from);
-        const to2 = this.graph.nodes.get(nextEdge.to);
-        if (from1 && to1 && from2 && to2) {
-          const heading1 = Math.atan2(to1.y - from1.y, to1.x - from1.x);
-          const heading2 = Math.atan2(to2.y - from2.y, to2.x - from2.x);
-          let angleDiff = Math.abs(heading2 - heading1);
-          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-          angleDiff = Math.abs(angleDiff);
-
-          // If turn is sharp (> 10 degrees), decelerate proportionally
-          if (angleDiff > 0.15) {
-            desiredSpeed *= Math.max(0.3, 1 - (angleDiff / Math.PI) * 0.7);
-          }
-        }
-      }
-    }
-    
-    // Car following (IDM-like logic) with speed-adaptive spatial query radius
+    // --- 1. Find Lead Vehicle (Car Following) ---
     const queryRadius = Math.max(45, (this.speed * 2.0) + this.length);
     const ahead = spatialGrid.query(this.pos.x, this.pos.y, queryRadius);
-    let minGap = Infinity;
+    
     let leadVehicle = null;
+    let minGap = Infinity;
     
     for (const other of ahead) {
       if (other.id === this.id || !other.alive) continue;
-      // Must be on the same edge and lane
       if (other.currentEdgeId !== this.currentEdgeId || other.laneIndex !== this.laneIndex) continue;
       
-      // Sub-lane filtering bypass: if motorcycles are side-by-side laterally, do not trigger car-following brake!
-      if (this.type === 'motorcycle' && other.type === 'motorcycle') {
-        if (Math.abs((other.laneOffset || 0) - (this.laneOffset || 0)) > 6) continue;
-      }
-      
-      // Must be in front of us
       if (other.segmentProgress > this.segmentProgress) {
-        // Bug Fix: Pos is center, so subtract both half-lengths for physical bumper-to-bumper gap
+        // Gap is distance between centers minus both half-lengths
         const gap = (other.segmentProgress - this.segmentProgress) * edge.length - (this.length + other.length) / 2;
-        if (gap < minGap && gap > -10) {
+        if (gap < minGap && gap >= 0) {
           minGap = gap;
           leadVehicle = other;
         }
       }
     }
+
+    // --- 2. Intersection Control (Virtual Lead Vehicle) ---
+    let intersectionGap = Infinity;
+    let stopAtIntersection = false;
     
-    if (leadVehicle) {
-      // Safety distance based on speed (1.0s headway rule) scaled by weather friction lag
-      const weatherBrakeMult = Math.min(3.0, 1.0 / (weatherMult * weatherMult));
-      const safeDistance = (15 * CANVAS_SCALE + this.speed * 1.0) * weatherBrakeMult;
-      const minSafetyGap = 3.0 * CANVAS_SCALE * weatherBrakeMult; // larger gap when wet/slippery
-      
-      if (minGap < minSafetyGap) {
-        desiredSpeed = 0; // Hard emergency override: stop completely to prevent collision/overlap!
-      } else if (minGap < safeDistance) {
-        // Adjust speed smoothly using IDM safety interpolation
-        const interp = Math.max(0, (minGap - minSafetyGap) / (safeDistance - minSafetyGap));
-        desiredSpeed = Math.min(desiredSpeed, leadVehicle.speed * interp);
+    const nextIntersection = this.nextNode;
+    if (nextIntersection) {
+      const intObj = intersections.get(this.route[this.routeIndex + 1]);
+      if (intObj) {
+        const dir = this._getDirection();
+        const lightColor = dir ? (dir === 'N' || dir === 'S' ? intObj.trafficLight.getColorNS() : intObj.trafficLight.getColorEW()) : 'GREEN';
+        
+        // Always stop for RED or YELLOW unless it's a siren
+        if (lightColor !== 'GREEN' && !this.sirenActive) {
+          stopAtIntersection = true;
+        }
+        
+        // Also stop if intersection is physically blocked by cross traffic
+        if (!stopAtIntersection && this.segmentProgress > 0.8) {
+           const centerOccupants = spatialGrid.query(intObj.x, intObj.y, 25);
+           for (const occupant of centerOccupants) {
+             if (occupant.id === this.id || !occupant.alive) continue;
+             if (occupant.currentEdgeId !== this.currentEdgeId) {
+               stopAtIntersection = true;
+               break;
+             }
+           }
+        }
+        
+        if (stopAtIntersection) {
+          const distToIntersection = (1 - this.segmentProgress) * edge.length;
+          intersectionGap = distToIntersection - (this.length / 2);
+        }
       }
     }
 
-    // Overtaking & Lane changing physics
-    if (this.inViewport && leadVehicle && leadVehicle.speed < desiredSpeed * 0.75) {
+    // Combine actual lead vehicle and virtual intersection stop line
+    let effectiveGap = Infinity;
+    let deltaV = 0; // Relative speed (v - v_lead)
+
+    if (leadVehicle && minGap < intersectionGap) {
+      effectiveGap = minGap;
+      deltaV = this.speed - leadVehicle.speed;
+    } else if (stopAtIntersection && intersectionGap < Infinity) {
+      effectiveGap = intersectionGap;
+      deltaV = this.speed - 0; // Virtual vehicle is stopped
+    }
+
+    // --- 3. Intelligent Driver Model (IDM) Physics ---
+    let dv_dt = 0;
+    
+    if (effectiveGap === Infinity) {
+      // Free road term
+      dv_dt = this.a * (1 - Math.pow(this.speed / currentV0, 4));
+    } else {
+      // Interaction term
+      const s_star = this.s0 + Math.max(0, (this.speed * this.T) + (this.speed * deltaV) / (2 * Math.sqrt(this.a * this.b)));
+      dv_dt = this.a * (1 - Math.pow(this.speed / currentV0, 4) - Math.pow(s_star / Math.max(0.1, effectiveGap), 2));
+    }
+
+    // Update speed
+    this.speed += dv_dt * dt;
+    this.speed = Math.max(0, this.speed); // No reversing
+
+    // Wait time tracking
+    if (this.speed < 2) {
+      this.state = 'stopped';
+      this.waitTime += dt;
+    } else {
+      this.state = 'moving';
+    }
+
+    // --- 4. Simple Lane Changing (Overtaking) ---
+    // Only attempt to change lanes if significantly slowed down by a vehicle
+    if (leadVehicle && this.speed < currentV0 * 0.7 && edge.lanes > 1) {
       const now = performance.now();
       if (!this.lastLaneChangeTime) this.lastLaneChangeTime = 0;
-      if (now - this.lastLaneChangeTime > 3000) {
-        const possibleLanes = [];
-        if (this.laneIndex - 1 >= 0) possibleLanes.push(this.laneIndex - 1);
-        if (this.laneIndex + 1 < edge.lanes) possibleLanes.push(this.laneIndex + 1);
+      
+      if (now - this.lastLaneChangeTime > 2000) { // 2 second cooldown
+        const candidates = [];
+        if (this.laneIndex > 0) candidates.push(this.laneIndex - 1);
+        if (this.laneIndex < edge.lanes - 1) candidates.push(this.laneIndex + 1);
+        
+        let bestLane = this.laneIndex;
+        let foundSafeLane = false;
 
-        let laneChangePossible = false;
-        let targetLane = this.laneIndex;
-
-        for (const tLane of possibleLanes) {
-          let gapAhead = Infinity;
-          let gapBehind = Infinity;
-
-          // Query spatial grid for safety check in the target lane
-          const targetLaneAhead = spatialGrid.query(this.pos.x, this.pos.y, 50);
-          for (const other of targetLaneAhead) {
+        for (const tLane of candidates) {
+          let safe = true;
+          const targetAhead = spatialGrid.query(this.pos.x, this.pos.y, 50);
+          for (const other of targetAhead) {
             if (other.id === this.id || !other.alive) continue;
-            if (other.currentEdgeId !== this.currentEdgeId || other.laneIndex !== tLane) continue;
-
-            const dist = (other.segmentProgress - this.segmentProgress) * edge.length;
-            // Bug Fix: Subtract both half-lengths instead of just other.length
-            if (dist > 0) {
-              const gap = dist - (this.length + other.length) / 2;
-              if (gap < gapAhead) gapAhead = gap;
-            } else {
-              const gap = -dist - (this.length + other.length) / 2;
-              if (gap < gapBehind) gapBehind = gap;
+            if (other.currentEdgeId === this.currentEdgeId && other.laneIndex === tLane) {
+               const dist = (other.segmentProgress - this.segmentProgress) * edge.length;
+               const gap = Math.abs(dist) - (this.length + other.length) / 2;
+               if (gap < 20 * CANVAS_SCALE) {
+                 safe = false; // Too close!
+                 break;
+               }
             }
           }
-
-          // Safety gap check: 15px ahead and 10px behind
-          if (gapAhead > 15 && gapBehind > 10) {
-            targetLane = tLane;
-            laneChangePossible = true;
+          if (safe) {
+            bestLane = tLane;
+            foundSafeLane = true;
             break;
           }
         }
 
-        if (laneChangePossible) {
-          this.laneIndex = targetLane;
+        if (foundSafeLane) {
+          this.laneIndex = bestLane;
           this.lastLaneChangeTime = now;
         }
       }
     }
-    
-    // Acceleration / Braking
-    if (this.speed < desiredSpeed) {
-      this.speed = Math.min(desiredSpeed, this.speed + this.accel * dt);
-      this.state = 'moving';
-    } else if (this.speed > desiredSpeed) {
-      // Hard braking if speed is significantly higher than desired
-      const brakeFactor = desiredSpeed === 0 ? 4.5 : 2.5;
-      this.speed = Math.max(desiredSpeed, this.speed - this.accel * brakeFactor * dt);
-      this.state = desiredSpeed < this.speed * 0.75 ? 'braking' : 'moving';
-    }
-    
-    this.speed = Math.max(0, Math.min(this.speed, this.maxSpeed));
-    
-    if (this.speed < 2) {
-      this.state = 'stopped';
-      this.waitTime += dt;
-    } else if (this.state !== 'braking') {
-      this.state = 'moving';
-    }
-    
-    // Move along segment
+
+    // --- 5. Move & Progress ---
     if (this.speed > 0 && edge.length > 0) {
       const advance = (this.speed * dt) / edge.length;
       this.segmentProgress += advance;
       this.distanceTravelled += this.speed * dt;
       
-      // Check if reached next node
       if (this.segmentProgress >= 1) {
         this.segmentProgress = 0;
         this.routeIndex++;
         
+        // Track throughput
         const crossedNodeId = this.route[this.routeIndex];
         const crossedInt = intersections.get(crossedNodeId);
         if (crossedInt) {
           crossedInt.vehiclesPassedAccumulatedController = (crossedInt.vehiclesPassedAccumulatedController || 0) + 1;
-          crossedInt.vehiclesPassedAccumulatedRL = (crossedInt.vehiclesPassedAccumulatedRL || 0) + 1;
-          crossedInt.vehiclesPassedThisGreenPhase = (crossedInt.vehiclesPassedThisGreenPhase || 0) + 1;
         }
 
         if (this.routeIndex >= this.route.length - 1) {
@@ -443,12 +331,10 @@ export class Vehicle {
           this.alive = false;
           return;
         }
-        
-        const newEdge = this.currentEdge;
-        if (!newEdge) { this.alive = false; return; }
       }
     }
     
+    // Check destination arrival
     const finalNode = this.route[this.route.length - 1];
     const finalPos = this.graph.nodes.get(finalNode);
     if (finalPos && this.routeIndex === this.route.length - 2) {
@@ -464,120 +350,13 @@ export class Vehicle {
   }
 
   _recordTripComplete() {
-    if (typeof window !== 'undefined' && window.__trafficOptMetrics) {
-      window.__trafficOptMetrics.recordTripComplete({
+    if (typeof window !== 'undefined' && (window.__sancharMetrics || window.__trafficOptMetrics)) {
+      (window.__sancharMetrics || window.__trafficOptMetrics).recordTripComplete({
         waitTime: this.waitTime,
         travelTime: (performance.now() - (this.spawnTime || 0)) / 1000,
         distance: this.distanceTravelled,
       });
     }
   }
-
-  _macroUpdate(dt, intersections, edge, desiredSpeed) {
-    const nextIntersection = this.nextNode;
-    // Note: desiredSpeed is already pre-scaled by Greenshields density in update() before delegate call
-
-    if (nextIntersection && this.segmentProgress > 0.8) {
-      const intObj = intersections.get(this.route[this.routeIndex + 1]);
-      if (intObj) {
-        const dir = this._getDirection();
-        if (dir && !intObj.trafficLight.canPass(dir) && !this.sirenActive) {
-          desiredSpeed = 0;
-        }
-      }
-    }
-    
-    if (this.speed < desiredSpeed) {
-      this.speed = Math.min(desiredSpeed, this.speed + this.accel * dt);
-    } else if (this.speed > desiredSpeed) {
-      this.speed = Math.max(desiredSpeed, this.speed - this.accel * 2 * dt);
-    }
-    
-    this.speed = Math.max(0, Math.min(this.speed, this.maxSpeed));
-    
-    if (this.speed < 2) {
-      this.state = 'stopped';
-      this.waitTime += dt;
-    } else {
-      this.state = 'moving';
-    }
-
-    if (this.speed > 0 && edge.length > 0) {
-      this.distanceTravelled += this.speed * dt;
-      this.segmentProgress += (this.speed * dt) / edge.length;
-
-      if (this.segmentProgress >= 1) {
-        this.routeIndex++;
-        
-        const crossedNodeId = this.route[this.routeIndex];
-        const crossedInt = intersections.get(crossedNodeId);
-        if (crossedInt) {
-          crossedInt.vehiclesPassedAccumulatedController = (crossedInt.vehiclesPassedAccumulatedController || 0) + 1;
-          crossedInt.vehiclesPassedAccumulatedRL = (crossedInt.vehiclesPassedAccumulatedRL || 0) + 1;
-          crossedInt.vehiclesPassedThisGreenPhase = (crossedInt.vehiclesPassedThisGreenPhase || 0) + 1;
-        }
-
-        this.segmentProgress = 0;
-        this.currentEdgeId = null;
-        if (this.routeIndex >= this.route.length - 1) {
-          this._recordTripComplete();
-          this.alive = false;
-          return;
-        }
-      }
-    }
-  }
-
-  _getDensitySpeedMultiplier(edge) {
-    if (!edge || edge.density === undefined || !edge.lanes) return 1.0;
-    const lengthKm = edge.length / (CANVAS_SCALE * 1000);
-    if (lengthKm <= 0) return 1.0;
-    const densityK = (edge.density / lengthKm) / edge.lanes; // PCU per km per lane
-    const jamDensity = 130; // standard jam density threshold
-    return Math.max(0.05, 1 - Math.min(1, densityK / jamDensity));
-  }
-
-  _isIntersectionCenterOccupied(intersection, spatialGrid) {
-    // Query vehicles within 25px of the intersection center
-    const nearby = spatialGrid.query(intersection.x, intersection.y, 25);
-    for (const other of nearby) {
-      if (other.id === this.id || !other.alive) continue;
-      // If the other vehicle is extremely close to the center and not on our same edge/lane (cross-traffic)
-      const dx = other.pos.x - intersection.x;
-      const dy = other.pos.y - intersection.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist < 20 && other.currentEdgeId !== this.currentEdgeId) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  _checkDynamicLaneChange(edge, spatialGrid) {
-    const candidates = [];
-    if (this.laneIndex > 0) candidates.push(this.laneIndex - 1);
-    if (this.laneIndex < edge.lanes - 1) candidates.push(this.laneIndex + 1);
-    
-    if (candidates.length === 0) return;
-    
-    const queryRadius = Math.max(30, this.length * 2);
-    const nearby = spatialGrid.query(this.pos.x, this.pos.y, queryRadius);
-    
-    const blockedLanes = new Set();
-    for (const other of nearby) {
-      if (other.id === this.id || !other.alive || other.currentEdgeId !== this.currentEdgeId) continue;
-      
-      if (other.laneIndex !== this.laneIndex) {
-        const progressDiff = Math.abs(other.segmentProgress - this.segmentProgress) * edge.length;
-        if (progressDiff < this.length + 5) {
-          blockedLanes.add(other.laneIndex);
-        }
-      }
-    }
-    
-    const freeLanes = candidates.filter(l => !blockedLanes.has(l));
-    if (freeLanes.length > 0) {
-      this.laneIndex = freeLanes[Math.floor(Math.random() * freeLanes.length)];
-    }
-  }
 }
+

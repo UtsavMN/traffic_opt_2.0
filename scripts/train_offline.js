@@ -123,7 +123,7 @@ class MockEngine {
 }
 
 async function train() {
-  console.log("=== Zenith RL Offline Training (v10 Queuing Model) ===");
+  console.log("=== Sanchar RL Offline Training (v10 Queuing Model) ===");
   console.log(`Starting domain-randomized training for ${EPISODES} episodes...`);
   
   const rlAgent = new RLAgent();
@@ -196,3 +196,4 @@ async function train() {
 }
 
 train();
+

@@ -14,7 +14,6 @@ export class Renderer {
       heatmap: false,
       aiDecisions: true,
       vehicleRoutes: false,
-      pedestrianPaths: false,
       zoneColors: false,
       sensorCones: false, // Visual overlay for virtual sensors
     };

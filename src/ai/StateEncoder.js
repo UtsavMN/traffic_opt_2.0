@@ -66,8 +66,8 @@ export class StateEncoder {
     const avgNeighborActive = downstreamCount > 0 ? sumNeighborActive / downstreamCount : 0;
     const avgNeighborOpposing = downstreamCount > 0 ? sumNeighborOpposing / downstreamCount : 0;
 
-    // Context features
-    const pedWaiting = int.pedestriansWaiting > 0 ? 1 : 0;
+    // Context features (pure vehicular traffic - pedestrians removed)
+    const pedWaiting = 0.0;
     const emergency = int.emergencyApproaching ? 1 : 0;
     const weatherFactor = 1 - engine.weather.speedMult;
     const tod = engine.timeOfDay.normalized;

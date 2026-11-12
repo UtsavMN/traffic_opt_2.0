@@ -12,13 +12,17 @@ export default function App() {
   return (
     <div className="app-layout">
       <LoadingScreen />
-      <TopBar />
+      <TopBar
+        setTimeOfDay={sim.setTimeOfDay}
+        setTimeLocked={sim.setTimeLocked}
+      />
       <Sidebar
         setSimSpeed={sim.setSimSpeed}
         togglePause={sim.togglePause}
         setSpawnRate={sim.setSpawnRate}
         setWeather={sim.setWeather}
         setTimeOfDay={sim.setTimeOfDay}
+        setTimeLocked={sim.setTimeLocked}
         changeScenario={sim.changeScenario}
         triggerAccident={sim.triggerAccident}
         setOverlay={sim.setOverlay}

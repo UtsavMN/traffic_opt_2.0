@@ -32,40 +32,42 @@ async function runAudit() {
   await page.screenshot({ path: path.join(ARTIFACT_DIR, 'adaptive_run.png') });
   
   const adaptiveMetrics = await page.evaluate(() => {
-    return window.__trafficOptMetrics.getMetrics();
+    return (window.__sancharMetrics || window.__trafficOptMetrics).getMetrics();
   });
   console.log(`[ADAPTIVE METRICS] Wait: ${adaptiveMetrics.avgWait.toFixed(2)}s, Throughput: ${adaptiveMetrics.throughput.toFixed(2)}/min, Speed: ${adaptiveMetrics.avgSpeed.toFixed(2)}px/s, Green EFF: ${adaptiveMetrics.greenEfficiency.toFixed(2)}%`);
 
   // PART 2: RL_ACTIVE MODE & ML Integration
   console.log("--- PART 2: RL_ACTIVE MODE ---");
   await page.evaluate(() => {
+    /* RL Shelved for baseline test
     // Inject log into StateEncoder
-    const oldEncode = window.__trafficOptEngine.aiController.coordinator.rlAgent.encoder.encode;
-    window.__trafficOptEngine.aiController.coordinator.rlAgent.encoder.encode = function(int, engine) {
+    const oldEncode = (window.__sancharEngine || window.__trafficOptEngine).aiController.coordinator.rlAgent.encoder.encode;
+    (window.__sancharEngine || window.__trafficOptEngine).aiController.coordinator.rlAgent.encoder.encode = function(int, engine) {
       const state = oldEncode.call(this, int, engine);
       if (Math.random() < 0.05) { 
         console.log(`[StateEncoder] Encoded state: [${state.join(', ')}] (Length: ${state.length})`);
       }
       return state;
     };
+    */
     
     // Switch to RL_ACTIVE
-    window.__trafficOptEngine.aiController.rlActive = true;
+    (window.__sancharEngine || window.__trafficOptEngine).aiController.rlActive = true;
   });
 
   await new Promise(r => setTimeout(r, 30000));
   await page.screenshot({ path: path.join(ARTIFACT_DIR, 'rl_active_run.png') });
   
   const rlMetrics = await page.evaluate(() => {
-    return window.__trafficOptMetrics.getMetrics();
+    return (window.__sancharMetrics || window.__trafficOptMetrics).getMetrics();
   });
   console.log(`[RL_ACTIVE METRICS] Wait: ${rlMetrics.avgWait.toFixed(2)}s, Throughput: ${rlMetrics.throughput.toFixed(2)}/min, Speed: ${rlMetrics.avgSpeed.toFixed(2)}px/s, Green EFF: ${rlMetrics.greenEfficiency.toFixed(2)}%`);
 
   // PART 3: STRESS TEST
   console.log("--- PART 3: STRESS TEST (2x SPAWN RATE) ---");
   await page.evaluate(() => {
-    window.__trafficOptEngine.setSpawnRate(120);
-    console.log(`Spawn rate doubled to ${window.__trafficOptEngine.spawnRate}`);
+    (window.__sancharEngine || window.__trafficOptEngine).setSpawnRate(120);
+    console.log(`Spawn rate doubled to ${(window.__sancharEngine || window.__trafficOptEngine).spawnRate}`);
   });
 
   await new Promise(r => setTimeout(r, 30000));
@@ -73,8 +75,8 @@ async function runAudit() {
 
   const stressMetrics = await page.evaluate(() => {
     return {
-      poolActive: window.__trafficOptEngine.vehicles.length,
-      poolCap: window.__trafficOptEngine.vehiclePool._capacity,
+      poolActive: (window.__sancharEngine || window.__trafficOptEngine).vehicles.length,
+      poolCap: (window.__sancharEngine || window.__trafficOptEngine).vehiclePool._capacity,
     };
   });
   console.log(`[STRESS METRICS] Active Vehicles: ${stressMetrics.poolActive} / Cap: ${stressMetrics.poolCap}`);
@@ -88,3 +90,4 @@ runAudit().catch(err => {
   console.error(err);
   process.exit(1);
 });
+

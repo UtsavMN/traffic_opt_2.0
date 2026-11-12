@@ -2,7 +2,6 @@ import { SpatialGrid } from './SpatialGrid.js';
 import { useMetricsStore } from '../store/metricsStore.js';
 import { Intersection } from './Intersection.js';
 import { VehiclePool } from './VehiclePool.js';
-import { Pedestrian } from './Pedestrian.js';
 import { Cyclist } from './Cyclist.js';
 import { WeatherSystem } from './WeatherSystem.js';
 import { TimeOfDay } from './TimeOfDay.js';
@@ -113,7 +112,7 @@ export class Engine {
       const intersection = new Intersection(id, node.x, node.y, node.zone);
       // Wire up green phase callback (decoupled from React in Intersection.js)
       intersection.onGreenPhaseEnd = (hadVehicles) => {
-        if (typeof window !== 'undefined' && window.__trafficOptMetrics) {
+        if (typeof window !== 'undefined' && (window.__sancharMetrics || window.__trafficOptMetrics)) {
           useMetricsStore.getState().recordGreenPhase(hadVehicles);
         }
       };
@@ -250,13 +249,6 @@ export class Engine {
     // Spawn vehicles (Async — fire-and-forget with error catch)
     this._spawnTick(dt).catch(e => console.warn('[Spawn] Error:', e));
 
-    // Spawn pedestrians
-    this.pedSpawnTimer += dt;
-    if (this.pedSpawnTimer > 2.0) { // every 2s
-      this.pedSpawnTimer = 0;
-      this._spawnPedestrian();
-    }
-
     // Spawn cyclists
     this.cyclistSpawnTimer += dt;
     if (this.cyclistSpawnTimer > 5.0) { // every 5s
@@ -348,11 +340,6 @@ export class Engine {
 
     // Update queue counts
     this._updateQueues();
-
-    // Update pedestrians
-    for (const p of this.pedestrians) {
-      p.update(dt, this.intersections, this.intersectionGrid);
-    }
 
     // Update cyclists
     for (const c of this.cyclists) {
@@ -460,22 +447,6 @@ export class Engine {
     this.totalSpawned++;
   }
 
-  _spawnPedestrian() {
-    if (this.pedestrians.length >= 250) return;
-    const n1 = this.graph.getRandomNode();
-    const n2 = this.graph.getRandomNode();
-    if (!n1 || !n2 || n1 === n2) return;
-    const node1 = this.graph.nodes.get(n1);
-    const node2 = this.graph.nodes.get(n2);
-    if (!node1 || !node2) return;
-
-    // Offset from road
-    const ox = (Math.random() - 0.5) * 20;
-    const oy = (Math.random() - 0.5) * 20;
-    const p = new Pedestrian(node1.x + ox, node1.y + oy, node2.x + ox, node2.y + oy);
-    this.pedestrians.push(p);
-  }
-
   _spawnCyclist() {
     if (this.cyclists.length >= 50) return;
     const blocked = this.accidents.getBlockedEdges(this.graph);
@@ -538,12 +509,6 @@ export class Engine {
         this.vehiclePool.release(v);
       }
     }
-    for (let i = this.pedestrians.length - 1; i >= 0; i--) {
-      if (!this.pedestrians[i].alive) {
-        this.pedestrians[i] = this.pedestrians[this.pedestrians.length - 1];
-        this.pedestrians.pop();
-      }
-    }
     for (let i = this.cyclists.length - 1; i >= 0; i--) {
       if (!this.cyclists[i].alive) {
         this.cyclists[i] = this.cyclists[this.cyclists.length - 1];
@@ -604,7 +569,7 @@ export class Engine {
       this.onMetricsUpdate({
         vehicleCount: waitCount,
         waitingCount: waitingCount,
-        pedestrianCount: this.pedestrians.length,
+        pedestrianCount: 0,
         cyclistCount: this.cyclists.length,
         avgWaitTime: liveAvgWait, // Live active wait time instead of despawned wait time
         throughput: this.completedTrips.length, // Vehicles completed in last 60s
@@ -612,6 +577,7 @@ export class Engine {
         totalDespawned: this.totalDespawned,
         fps: this.fps,
         timeOfDay: this.timeOfDay.hour,
+        timeLocked: this.timeOfDay.isLocked,
         weather: this.weather.current,
         simSpeed: this.simSpeed,
         spawnRate: this.spawnRate,
@@ -649,9 +615,7 @@ export class Engine {
     this.renderer.drawAmbulanceRoutes(this.vehicles, this.graph);
     // Layer 4: Vehicles
     this.renderer.drawVehicles(this.vehicles, this.timeOfDay.isNight);
-    // Layer 5: Pedestrians
-    this.renderer.drawPedestrians(this.pedestrians);
-    // Layer 6: Cyclists
+    // Layer 5: Cyclists
     this.renderer.drawCyclists(this.cyclists);
     // Layer 6.5: Police
     for (const p of this.policeUnits) p.render(this.renderer.ctx, this.timeOfDay.isNight);
@@ -673,6 +637,10 @@ export class Engine {
   setSpawnRate(r) { this.spawnRate = r; }
   setWeather(w) { this.weather.setWeather(w); }
   setTimeOfDay(h) { this.timeOfDay.setHour(h); }
+  setTimeLocked(locked, h = null) {
+    if (locked) this.timeOfDay.lock(h);
+    else this.timeOfDay.unlock();
+  }
   setOverlay(name, val) { this.renderer.overlays[name] = val; }
 
   triggerAccident(severity) {
@@ -707,7 +675,7 @@ export class Engine {
       phaseProgress: int.trafficLight.phaseProgress,
       remaining: int.trafficLight.remaining,
       timeInPhase: int.trafficLight.timer,
-      pedestriansWaiting: int.pedestriansWaiting,
+      pedestriansWaiting: 0,
       phaseHistory: [...int.phaseHistory],
       totalQueue: int.getTotalQueue(),
     };
@@ -716,7 +684,7 @@ export class Engine {
   getSnapshot() {
     return {
       vehicleCount: this.vehicles.length,
-      pedestrianCount: this.pedestrians.length,
+      pedestrianCount: 0,
       cyclistCount: this.cyclists.length,
       avgWaitTime: this.avgWait.avg,
       throughput: this.completedTrips.length,
@@ -728,3 +696,4 @@ export class Engine {
     };
   }
 }
+

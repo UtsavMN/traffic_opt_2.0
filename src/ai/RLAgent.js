@@ -8,7 +8,7 @@ import { QApproximator } from './QApproximator.js';
  * Simple JS-based Q-value approximation for display purposes.
  */
 const ACTIONS = [
-  'KEEP_PHASE', 'SWITCH_PHASE', 'EXTEND_PHASE', 'PEDESTRIAN_SCRAMBLE'
+  'KEEP_PHASE', 'SWITCH_PHASE'
 ];
 
 export class RLAgent {

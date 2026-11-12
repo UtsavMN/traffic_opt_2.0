@@ -16,7 +16,7 @@ export default function LoadingScreen() {
         fontSize: 32, fontWeight: 700, color: '#FFFFFF', marginBottom: 20,
         fontFamily: '"DM Mono", monospace'
       }}>
-        ZENITH
+        SANCHAR
       </div>
       <div style={{ color: '#00E87A', marginBottom: 20 }}>
         {loading}
@@ -38,3 +38,4 @@ export default function LoadingScreen() {
     </div>
   );
 }
+

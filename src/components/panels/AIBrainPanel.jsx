@@ -6,8 +6,6 @@ import { AreaChart, Area, ResponsiveContainer, YAxis, Tooltip } from 'recharts';
 const ACTION_LABELS = {
   'KEEP_PHASE': 'KEEP',
   'SWITCH_PHASE': 'SWITCH',
-  'EXTEND_PHASE': 'EXTEND',
-  'PEDESTRIAN_SCRAMBLE': 'PED_SCRAM',
   'EMRG_PREEMPT': 'EMRG_PRE',
   'FORCE_SWITCH': 'FORCE_SW'
 };
@@ -183,10 +181,6 @@ export default function AIBrainPanel({ getIntersectionData }) {
                 </div>
               );
             })}
-          </div>
-
-          <div style={{ marginTop: 6, fontSize: 9, color: 'var(--text-tertiary)' }}>
-            Pedestrians waiting: {intData.pedestriansWaiting}
           </div>
         </div>
       )}

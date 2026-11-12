@@ -6,7 +6,6 @@ export const useUIStore = create((set) => ({
     heatmap: false,
     aiDecisions: false,
     vehicleRoutes: false,
-    pedestrianPaths: false,
     zoneColors: false,
   },
 

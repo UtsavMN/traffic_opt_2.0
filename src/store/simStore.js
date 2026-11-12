@@ -2,7 +2,6 @@ import { create } from 'zustand';
 
 export const useSimStore = create((set) => ({
   vehicleCount: 0,
-  pedestrianCount: 0,
   cyclistCount: 0,
   policeCount: 0,
   avgWaitTime: 0,
@@ -11,6 +10,7 @@ export const useSimStore = create((set) => ({
   totalDespawned: 0,
   fps: 60,
   timeOfDay: 8,
+  timeLocked: false,
   weather: 'clear',
   simSpeed: 1,
   spawnRate: 1.0,
@@ -23,6 +23,8 @@ export const useSimStore = create((set) => ({
   setSimSpeed: (speed) => set({ simSpeed: speed }),
   setSpawnRate: (rate) => set({ spawnRate: rate }),
   setWeather: (w) => set({ weather: w }),
+  setTimeOfDay: (h) => set({ timeOfDay: h }),
+  setTimeLocked: (locked) => set({ timeLocked: locked }),
   setScenario: (s) => set({ scenario: s }),
   setRunning: (r) => set({ running: r }),
   setLoading: (l) => set({ loading: l }),

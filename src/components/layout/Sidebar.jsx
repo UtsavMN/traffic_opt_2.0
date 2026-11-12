@@ -20,23 +20,28 @@ const OVERLAY_OPTIONS = [
   { id: 'heatmap', label: 'Congestion Heatmap' },
   { id: 'aiDecisions', label: 'AI Decision Pulses' },
   { id: 'vehicleRoutes', label: 'Vehicle Routes' },
-  { id: 'pedestrianPaths', label: 'Pedestrian Paths' },
   { id: 'zoneColors', label: 'Zone Colors' },
   { id: 'sensorCones', label: 'Virtual Sensor Cones' },
 ];
 
 export default function Sidebar({
-  setSimSpeed, setSpawnRate, setWeather, setTimeOfDay,
+  setSimSpeed, setSpawnRate, setWeather, setTimeOfDay, setTimeLocked,
   changeScenario, triggerAccident, setOverlay, togglePause,
 }) {
   const simSpeed = useSimStore(s => s.simSpeed);
   const weather = useSimStore(s => s.weather);
   const running = useSimStore(s => s.running);
+  const timeOfDay = useSimStore(s => s.timeOfDay);
+  const timeLocked = useSimStore(s => s.timeLocked);
   const overlays = useUIStore(s => s.overlays);
 
   const [spawnVal, setSpawnVal] = useState(1.0);
-  const [timeVal, setTimeVal] = useState(8);
   const [selectedScenario, setSelectedScenario] = useState('bengaluru_central');
+
+  const currentHour = typeof timeOfDay === 'number' ? timeOfDay : 8;
+  const hours = Math.floor(currentHour);
+  const minutes = Math.floor((currentHour - hours) * 60);
+  const timeFormatted = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 
   return (
     <div className="sidebar">
@@ -47,19 +52,63 @@ export default function Sidebar({
       <div className="panel-section">
         <div className="panel-section__title">City Controls</div>
 
-        <div className="control-row">
+        <div className="control-row" style={{ display: 'flex', alignItems: 'center' }}>
           <span className="control-row__label">Time of Day</span>
-          <span className="control-row__value">{Math.floor(timeVal)}:00</span>
+          <span className="control-row__value" style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+            {timeFormatted}
+          </span>
+          <button
+            onClick={() => setTimeLocked(!timeLocked, currentHour)}
+            style={{
+              marginLeft: 'auto',
+              padding: '2px 6px',
+              fontSize: 9,
+              borderRadius: 3,
+              fontWeight: 700,
+              cursor: 'pointer',
+              border: timeLocked ? '1px solid #FFB400' : '1px solid rgba(255, 255, 255, 0.15)',
+              background: timeLocked ? 'rgba(255, 180, 0, 0.15)' : 'transparent',
+              color: timeLocked ? '#FFB400' : 'var(--text-tertiary)',
+            }}
+            title={timeLocked ? 'Time is locked. Click to let time move naturally' : 'Click to lock time'}
+          >
+            {timeLocked ? '🔒 LOCKED' : '🔓 AUTO'}
+          </button>
         </div>
         <input
-          type="range" className="range-slider" min="0" max="23" step="0.5"
-          value={timeVal}
+          type="range" className="range-slider" min="0" max="23.95" step="0.25"
+          value={currentHour}
           onChange={(e) => {
             const v = parseFloat(e.target.value);
-            setTimeVal(v);
             setTimeOfDay(v);
           }}
         />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4, marginTop: 4, marginBottom: 8 }}>
+          {[
+            { label: '08:30', h: 8.5 },
+            { label: '13:00', h: 13.0 },
+            { label: '18:00', h: 18.0 },
+            { label: '22:00', h: 22.0 },
+          ].map(p => (
+            <button
+              key={p.h}
+              onClick={() => {
+                setTimeOfDay(p.h);
+              }}
+              style={{
+                fontSize: 9,
+                padding: '2px 0',
+                background: Math.abs(currentHour - p.h) < 0.3 ? 'rgba(61, 158, 255, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+                border: Math.abs(currentHour - p.h) < 0.3 ? '1px solid #3D9EFF' : '1px solid rgba(255, 255, 255, 0.08)',
+                color: Math.abs(currentHour - p.h) < 0.3 ? '#3D9EFF' : 'var(--text-secondary)',
+                borderRadius: 3,
+                cursor: 'pointer',
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
 
         <div className="control-row" style={{ display: 'flex', alignItems: 'center' }}>
           <span className="control-row__label">Sim Speed</span>

@@ -120,7 +120,7 @@ export const useMetricsStore = create((set, get) => ({
 // ── Global Bridges ─────────────────────────────────────
 // These allow the vanilla-JS engine to communicate with React state
 if (typeof window !== 'undefined') {
-  window.__trafficOptMetrics = {
+  window.__sancharMetrics = {
     recordTripComplete: (trip) => {
       useMetricsStore.getState().recordTripComplete(trip);
     },
@@ -135,10 +135,12 @@ if (typeof window !== 'undefined') {
       };
     }
   };
+  window.__trafficOptMetrics = window.__sancharMetrics;
 
-  window.__trafficOptAI = {
+  window.__sancharAI = {
     logDecision: (decision) => {
       useMetricsStore.getState().logAIDecision(decision);
     },
   };
+  window.__trafficOptAI = window.__sancharAI;
 }

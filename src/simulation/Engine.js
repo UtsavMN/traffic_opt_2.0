@@ -66,6 +66,7 @@ export class Engine {
     this._lastTime = 0;
     this.avgWait = new RollingAverage(200);
     this.completedTrips = []; // Timestamps of completed trips
+    this.intersectionDischarges = []; // Timestamps of intersection crossings
     this._simTime = 0;
 
     // Callbacks for React state bridge
@@ -85,6 +86,11 @@ export class Engine {
 
     // Bind
     this._loop = this._loop.bind(this);
+  }
+
+  recordIntersectionDischarge() {
+    this.vehiclesPassed++;
+    this.intersectionDischarges.push(this._simTime);
   }
 
   loadCity(graph) {
@@ -440,6 +446,7 @@ export class Engine {
 
     const v = this.vehiclePool.acquire(type, route, this.graph);
     if (!v) { console.warn('[Spawn] Pool exhausted'); return; }
+    v.engine = this;
 
     // Position setup
     v.pos.x = origin.x;
@@ -470,7 +477,7 @@ export class Engine {
       int.emergencyApproaching = false;
       int.emergencyDir = null;
     }
-    // Count stopped/slow vehicles near intersections
+    // Count stopped/slow vehicles approaching intersections
     for (const v of this.vehicles) {
       if (!v.alive) continue;
       if (v.routeIndex + 1 >= v.route.length) continue;
@@ -480,11 +487,15 @@ export class Engine {
       
       const dir = v._getDirection();
       if (dir) {
-        if (v.speed <= 15) {
+        // True queue detection: vehicle is within intersection approach zone (< 110px) and stopped/slow (< 3.0 m/s)
+        const distToIntersection = (1 - v.segmentProgress) * (v.currentEdge?.length || 100);
+        if (distToIntersection < 110 && v.speed < 3.0) {
           int.queues[dir]++;
         }
-        int.maxWait = Math.max(int.maxWait, v.waitTime);
-        int.totalWaitSeconds += v.waitTime;
+        // Localized wait time for THIS intersection approach
+        const wait = v.currentWaitTime || 0;
+        int.maxWait = Math.max(int.maxWait, wait);
+        int.totalWaitSeconds += wait;
         if (v.sirenActive) {
           int.emergencyApproaching = true;
           int.emergencyDir = dir;
@@ -531,9 +542,10 @@ export class Engine {
     if (this._metricsThrottle < 0.1) return; // 10Hz
     this._metricsThrottle = 0;
 
-    // Filter completed trips to last 60 seconds
+    // Filter completed trips and intersection crossings to last 60 seconds
     const windowStart = this._simTime - 60;
     this.completedTrips = this.completedTrips.filter(t => t >= windowStart);
+    this.intersectionDischarges = this.intersectionDischarges.filter(t => t >= windowStart);
 
     let totalImbalance = 0;
     for (const [, int] of this.intersections) {
@@ -555,17 +567,23 @@ export class Engine {
     const freeFlowSpeedKmh = 40.0;
     const congestionLevel = Math.max(0, Math.min(100, (1.0 - (avgSpeedKmh / freeFlowSpeedKmh)) * 100));
 
-    let totalWait = 0;
+    let totalCurrentWait = 0;
     let waitCount = 0;
     let waitingCount = 0;
     for (const v of this.vehicles) {
       if (v.alive) {
-        totalWait += v.waitTime;
         waitCount++;
-        if (v.speed < 2) waitingCount++;
+        if (v.speed < 2) {
+          waitingCount++;
+          totalCurrentWait += (v.currentWaitTime || 0);
+        }
       }
     }
-    const liveAvgWait = waitCount > 0 ? totalWait / waitCount : 0;
+    // Live average wait time of stopped vehicles at their current signal
+    const liveAvgWait = waitingCount > 0 ? totalCurrentWait / waitingCount : 0;
+
+    // True City Throughput: completed full trips + normalized intersection crossings in last 60s
+    const liveThroughput = Math.round(this.completedTrips.length + (this.intersectionDischarges.length / 8));
 
     if (this.onMetricsUpdate) {
       this.onMetricsUpdate({
@@ -574,7 +592,7 @@ export class Engine {
         pedestrianCount: 0,
         cyclistCount: this.cyclists.length,
         avgWaitTime: liveAvgWait, // Live active wait time instead of despawned wait time
-        throughput: this.completedTrips.length, // Vehicles completed in last 60s
+        throughput: liveThroughput, // Citywide vehicle throughput in last 60s
         totalSpawned: this.totalSpawned,
         totalDespawned: this.totalDespawned,
         fps: this.fps,

@@ -430,7 +430,7 @@ export class Renderer {
         ctx.save();
         ctx.translate(kx, ky);
 
-        const r = Math.max(2.5, 3.0 * z);
+        const r = Math.min(6.0, Math.max(2.5, 3.0 * z));
 
         // Small neat circular badge
         ctx.fillStyle = '#1D4ED8'; // Clean police blue
@@ -439,12 +439,12 @@ export class Renderer {
         ctx.fill();
 
         ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = Math.max(0.6, 0.8 * z);
+        ctx.lineWidth = Math.min(1.2, Math.max(0.6, 0.8 * z));
         ctx.stroke();
 
         // Small white 'P'
         ctx.fillStyle = '#FFFFFF';
-        ctx.font = `bold ${Math.max(3, 3.6 * z)}px sans-serif`;
+        ctx.font = `bold ${Math.min(7.0, Math.max(3.2, 3.6 * z))}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('P', 0, 0.3 * z);

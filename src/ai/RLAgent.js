@@ -105,7 +105,9 @@ export class RLAgent {
     const batchSize = 32;
     for (let b = 0; b < numBatches; b++) {
       const batch = this.replay.sample(batchSize);
-      for (const { state, action, reward, nextState } of batch) {
+      for (const sample of batch) {
+        if (!sample || !sample.state || !sample.nextState) continue;
+        const { state, action, reward, nextState } = sample;
         const nextQ = this.q.predict(nextState);
         let maxNextQ = Math.max(...nextQ);
         if (isNaN(maxNextQ)) maxNextQ = 0;

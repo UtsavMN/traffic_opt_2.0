@@ -61,6 +61,8 @@ export class Vehicle {
     this.heading = 0;
     this.speed = 0;
     this.state = 'moving';
+    this.currentWaitTime = 0;
+    this.tripWaitTime = 0;
     this.waitTime = 0;
     this.distanceTravelled = 0;
     this.alive = true;
@@ -391,10 +393,12 @@ export class Vehicle {
     this.speed += dv_dt * dt;
     this.speed = Math.max(0, this.speed); // No reversing
 
-    // Wait time tracking
+    // Wait time tracking (distinguishes current intersection wait from cumulative trip wait)
     if (this.speed < 2) {
       this.state = 'stopped';
-      this.waitTime += dt;
+      this.currentWaitTime += dt;
+      this.tripWaitTime += dt;
+      this.waitTime = this.currentWaitTime;
     } else {
       this.state = 'moving';
     }
@@ -449,13 +453,20 @@ export class Vehicle {
       
       if (this.segmentProgress >= 1) {
         this.segmentProgress = 0;
+        this.currentWaitTime = 0;
+        this.waitTime = 0;
         this.routeIndex++;
         
-        // Track throughput
+        // Track throughput across intersections
         const crossedNodeId = this.route[this.routeIndex];
         const crossedInt = intersections.get(crossedNodeId);
         if (crossedInt) {
           crossedInt.vehiclesPassedAccumulatedController = (crossedInt.vehiclesPassedAccumulatedController || 0) + 1;
+          crossedInt.vehiclesPassedAccumulatedRL = (crossedInt.vehiclesPassedAccumulatedRL || 0) + 1;
+          crossedInt.vehiclesPassedThisGreenPhase = (crossedInt.vehiclesPassedThisGreenPhase || 0) + 1;
+        }
+        if (this.engine) {
+          this.engine.recordIntersectionDischarge();
         }
 
         if (this.routeIndex >= this.route.length - 1) {

@@ -60,7 +60,7 @@ def validate(env: SancharTrafficEnv, agent: DQNAgent) -> Tuple[float, float, flo
 
 
 def train(
-    num_episodes: int = 350,
+    num_episodes: int = 400,
     val_every: int = 25,
     export_path: str = "public/weights/gnn_policy.json",
     seed: int = 42,

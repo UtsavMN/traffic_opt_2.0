@@ -25,6 +25,10 @@ export class QApproximator {
   }
 
   predict(state) {
+    if (!state || !state.length) {
+      return new Float32Array(this.actionCount);
+    }
+
     // 1. High-Performance Deep MLP Forward Pass (ReLU activations)
     if (this.mlpLayers && this.mlpLayers.length > 0) {
       let current = state;
@@ -62,6 +66,7 @@ export class QApproximator {
   }
 
   update(state, action, target, lr) {
+    if (!state || !state.length) return;
     this._ensureInit(state.length);
     if (!this.weights || !this.bias) return;
     if (action < 0 || action >= this.actionCount) return;

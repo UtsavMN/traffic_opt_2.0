@@ -68,8 +68,9 @@ export class AdaptiveController {
         this.totalDecisions++;
         int.triggerAIPulse(decision.action);
 
-        const reward = this._computeReward(int, decision, int.vehiclesPassedAccumulatedRL || 0);
+        const passed = int.vehiclesPassedAccumulatedRL || 0;
         int.vehiclesPassedAccumulatedRL = 0;
+        const reward = this._computeReward(int, decision, passed);
         this.totalReward += reward;
         this.rewardHistory.push(reward);
         if (this.rewardHistory.length > 500) this.rewardHistory.shift();
@@ -90,6 +91,16 @@ export class AdaptiveController {
             reward: reward,
             queues: { ...int.queues },
           });
+        }
+      } else {
+        // Holding green phase (KEEP_PHASE): collect rewards for vehicle discharge
+        const passed = int.vehiclesPassedAccumulatedRL || 0;
+        if (passed > 0) {
+          int.vehiclesPassedAccumulatedRL = 0;
+          const keepReward = this._computeReward(int, { action: 'KEEP_PHASE' }, passed);
+          this.totalReward += keepReward;
+          this.rewardHistory.push(keepReward);
+          if (this.rewardHistory.length > 500) this.rewardHistory.shift();
         }
       }
     }
@@ -166,8 +177,8 @@ export class AdaptiveController {
       };
     }
 
-    // Rule 1: Switch immediately if current direction is empty AND opposing has vehicles
-    if (currentQueue === 0 && opposingQueue > 0) {
+    // Rule 1: Switch if current direction is empty AND opposing has vehicles (must respect MIN_GREEN)
+    if (timeInPhase >= this.MIN_GREEN && currentQueue === 0 && opposingQueue > 0) {
       tl.forcePhase(currentIsNS ? 1 : 3);
       return {
         intersectionId: int.id,
@@ -177,13 +188,13 @@ export class AdaptiveController {
       };
     }
 
-    // Rule 1.5: Starvation Guard — If opposing vehicles have been waiting > 12s, switch immediately!
-    if (int.maxWait > 12.0 && opposingQueue > 0) {
+    // Rule 1.5: Starvation Guard — If opposing vehicles have been waiting > 18s at this junction, switch (must respect MIN_GREEN)
+    if (timeInPhase >= this.MIN_GREEN && int.maxWait > 18.0 && opposingQueue > 0) {
       tl.forcePhase(currentIsNS ? 1 : 3);
       return {
         intersectionId: int.id,
         action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
-        reason: `Starvation guard: Opposing max wait ${int.maxWait.toFixed(1)}s > 12s`,
+        reason: `Starvation guard: Opposing wait ${int.maxWait.toFixed(1)}s > 18s`,
         time: Date.now(),
       };
     }
@@ -199,9 +210,9 @@ export class AdaptiveController {
       };
     }
 
-    // Rule 3: Significant queue imbalance
+    // Rule 3: Significant queue imbalance (must respect MIN_GREEN)
     const dynamicThreshold = Math.max(3, currentQueue * 0.5);
-    if (opposingQueue > currentQueue + dynamicThreshold) {
+    if (timeInPhase >= this.MIN_GREEN && opposingQueue > currentQueue + dynamicThreshold) {
       tl.forcePhase(currentIsNS ? 1 : 3);
       return {
         intersectionId: int.id,
@@ -211,8 +222,8 @@ export class AdaptiveController {
       };
     }
 
-    // Rule 4: Ideal green time fulfilled
-    const ideal = this._idealGreen(currentQueue);
+    // Rule 4: Ideal green time fulfilled (must respect MIN_GREEN)
+    const ideal = Math.max(this.MIN_GREEN, this._idealGreen(currentQueue));
     if (timeInPhase >= ideal && opposingQueue > 0) {
       tl.forcePhase(currentIsNS ? 1 : 3);
       return {

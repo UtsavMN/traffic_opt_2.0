@@ -27,7 +27,7 @@ ALL_RED_PHASES = set()
 
 # Clearance & Safety Constraints (NEMA TS 2 compliant)
 MIN_GREEN_S: float = 10.0   # Minimum green duration to prevent rapid flapping
-MAX_GREEN_S: float = 60.0   # Maximum green duration to prevent starvation
+MAX_GREEN_S: float = 25.0   # Maximum green duration to prevent starvation (aligned with frontend)
 YELLOW_DURATION_S: float = 3.0
 ALL_RED_DURATION_S: float = 0.0
 

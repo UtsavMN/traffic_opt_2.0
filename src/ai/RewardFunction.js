@@ -1,55 +1,55 @@
 /**
- * RewardFunction — Sanchar Balanced MaxPressure Reward
- * Computes well-scaled reward for reinforcement learning, eliminating
- * short-sighted transition penalties and preventing signal flapping.
+ * RewardFunction — Sanchar Objective-Driven Reward
+ * 
+ * R = w1 * (Pressure Reduction)
+ *   + w2 * (Throughput)
+ *   - w3 * (Switching Cost)
+ *   - w4 * (Waiting & Delay Penalty)
+ * 
+ * Core Principle:
+ * Reward the agent for improving traffic conditions, not merely for choosing a particular action.
  */
 export function computeReward(prevState, nextState, action, info) {
-  let reward = 0.0;
+  const w1 = 12.0;  // Weight on Pressure Reduction
+  const w2 = 2.0;   // Weight on Throughput (per vehicle completed)
+  const w3 = 1.0;   // Weight on Switching Cost (clearance loss penalty)
+  const w4 = 1.0;   // Weight on Waiting / Delay Penalty
 
-  // 1. Steady Throughput Incentive (+2.5 per vehicle)
+  // 1. Throughput (+2.0 per vehicle completed)
   const throughput = info ? (info.completedThisStep || 0) : 0;
-  reward += throughput * 2.5;
+  const rThroughput = w2 * throughput;
 
-  // 2. Queue Pressure Dynamics (Sum of squared normalized pressures)
+  // 2. Pressure Reduction (Lyapunov energy reduction across all approaches)
+  let rPressure = 0.0;
+  const currActive = nextState ? nextState[0] : 0;
+  const currOpposing = nextState ? nextState[1] : 0;
+  const currPressure = (currActive * currActive) + (currOpposing * currOpposing);
+
   if (prevState && nextState) {
     const prevActive = prevState[0];
     const prevOpposing = prevState[1];
-    const currActive = nextState[0];
-    const currOpposing = nextState[1];
-
     const prevPressure = (prevActive * prevActive) + (prevOpposing * prevOpposing);
-    const currPressure = (currActive * currActive) + (currOpposing * currOpposing);
-
-    // Reward pressure reduction; penalize inflation
-    reward += (prevPressure - currPressure) * 12.0;
+    const deltaPressure = prevPressure - currPressure;
+    rPressure = w1 * deltaPressure;
+  } else {
+    rPressure = -0.5 * currPressure;
   }
 
-  // 3. Action-Specific Costs & Hysteresis
-  if (action === 'SWITCH_PHASE') {
-    reward -= 0.8; // Mild switch cost: deters high-frequency jitter/flapping
-    if (nextState && nextState[1] > nextState[0] + 0.15) {
-      reward += 4.0; // Reward switching when opposing queue is substantially larger
-    }
-  } else if (action === 'KEEP_PHASE') {
-    // Reward holding green when active approach is heavier
-    if (nextState && nextState[0] > nextState[1] + 0.10) {
-      reward += 0.5;
-    }
+  // 3. Switching Cost (Lost physical clearance capacity during yellow phase)
+  const isSwitch = (action === 'SWITCH_PHASE' || action === 1);
+  const rSwitch = isSwitch ? -w3 : 0.0;
+
+  // 4. Waiting & Delay Penalty (Total queue delay + starvation escalation)
+  const queueDelay = currActive + currOpposing;
+  const starvationFlag = (nextState && nextState[9] > 0.5) ? 1.0 : 0.0;
+  const rWait = -w4 * (queueDelay + starvationFlag * 1.5);
+
+  // 5. Emergency Vehicle Priority (Penalty while emergency vehicle is blocked)
+  let rEmergency = 0.0;
+  if (nextState && nextState[6] > 0.5) {
+    rEmergency = -3.0;
   }
 
-  // 4. Starvation Penalty (state index 9 is starvation flag)
-  if (nextState && nextState[9] > 0.5) {
-    if (action === 'SWITCH_PHASE') {
-      reward += 6.0; // Reward relieving starving queues
-    } else {
-      reward -= 10.0; // Penalize holding when starving
-    }
-  }
-
-  // 5. Emergency Vehicle Priority (state index 6 is emergency flag)
-  if (nextState && nextState[6] > 0.5 && action === 'SWITCH_PHASE') {
-    reward += 8.0;
-  }
-
-  return Math.max(-25.0, Math.min(25.0, reward));
+  const totalReward = rPressure + rThroughput + rSwitch + rWait + rEmergency;
+  return Math.max(-15.0, Math.min(15.0, totalReward));
 }

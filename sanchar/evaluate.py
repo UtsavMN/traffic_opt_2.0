@@ -28,6 +28,7 @@ def evaluate_fixed_time(seeds: List[int], green_duration: int = 30) -> Dict[str,
         done = False
         switches = 0
         starvations = 0
+        total_vehicles = 0
 
         while not done:
             # Fixed time: switch when time_in_phase >= green_duration
@@ -38,10 +39,11 @@ def evaluate_fixed_time(seeds: List[int], green_duration: int = 30) -> Dict[str,
 
             next_state, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
+            total_vehicles += info.get("vehicles_passed", 0)
             if next_state[9] > 0.5:
                 starvations += 1
 
-        all_throughput.append(info.get("vehicles_passed", 0))
+        all_throughput.append(total_vehicles)
         all_switches.append(switches)
         all_starvations.append(starvations)
 
@@ -64,6 +66,7 @@ def evaluate_actuated(seeds: List[int]) -> Dict[str, float]:
         done = False
         switches = 0
         starvations = 0
+        total_vehicles = 0
 
         while not done:
             int_data = {
@@ -80,10 +83,11 @@ def evaluate_actuated(seeds: List[int]) -> Dict[str, float]:
 
             next_state, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
+            total_vehicles += info.get("vehicles_passed", 0)
             if next_state[9] > 0.5:
                 starvations += 1
 
-        all_throughput.append(info.get("vehicles_passed", 0))
+        all_throughput.append(total_vehicles)
         all_switches.append(switches)
         all_starvations.append(starvations)
 
@@ -112,6 +116,7 @@ def evaluate_rl(weights_path: str, seeds: List[int]) -> Dict[str, float]:
         done = False
         switches = 0
         starvations = 0
+        total_vehicles = 0
 
         while not done:
             q_vals = model.predict_numpy(state)
@@ -124,10 +129,11 @@ def evaluate_rl(weights_path: str, seeds: List[int]) -> Dict[str, float]:
             next_state, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
             state = next_state
+            total_vehicles += info.get("vehicles_passed", 0)
             if next_state[9] > 0.5:
                 starvations += 1
 
-        all_throughput.append(info.get("vehicles_passed", 0))
+        all_throughput.append(total_vehicles)
         all_switches.append(switches)
         all_starvations.append(starvations)
 

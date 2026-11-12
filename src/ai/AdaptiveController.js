@@ -230,26 +230,45 @@ export class AdaptiveController {
   }
 
   _computeReward(int, decision, completedThisStep = 0) {
-    const totalQ = int.getTotalQueue();
-    let reward = 0.0;
+    const w1 = 12.0;
+    const w2 = 2.0;
+    const w3 = 1.0;
+    const w4 = 1.0;
 
-    reward += completedThisStep * 2.5;
-    reward -= (totalQ * 0.4);
+    // 1. Throughput
+    const rThroughput = w2 * completedThisStep;
 
-    const tl = int.trafficLight;
-    const starvationNS = (tl.redDurationNS > 30 && int.getQueueNS() > 0) ? (tl.redDurationNS - 30) * 0.2 : 0;
-    const starvationEW = (tl.redDurationEW > 30 && int.getQueueEW() > 0) ? (tl.redDurationEW - 30) * 0.2 : 0;
-    reward -= (starvationNS + starvationEW);
+    // 2. Pressure Reduction
+    const currentIsNS = int.trafficLight.currentPhase.includes('NS');
+    const qActive = currentIsNS ? int.getQueueNS() : int.getQueueEW();
+    const qOpposing = currentIsNS ? int.getQueueEW() : int.getQueueNS();
+    const normActive = Math.min(1, qActive / 40);
+    const normOpposing = Math.min(1, qOpposing / 40);
+    const currPressure = (normActive * normActive) + (normOpposing * normOpposing);
 
-    if (decision.action === 'EMRG_PREEMPT') {
-      reward += 10.0;
-    } else if (decision.action.startsWith('SWITCH')) {
-      reward -= 0.8;
-      const balance = Math.abs(int.getQueueNS() - int.getQueueEW());
-      if (balance > 3) reward += 2.0;
+    let rPressure = 0.0;
+    if (int._prevPressure !== undefined) {
+      rPressure = w1 * (int._prevPressure - currPressure);
     }
+    int._prevPressure = currPressure;
 
-    return Math.round(reward * 10) / 10;
+    // 3. Switching Cost (Lost physical clearance capacity during yellow phase)
+    const isSwitch = decision && (decision.action === 'SWITCH_PHASE' || decision.action.startsWith('SWITCH'));
+    const rSwitch = isSwitch ? -w3 : 0.0;
+
+    // 4. Waiting & Delay Penalty
+    const totalQ = int.getTotalQueue();
+    const queueDelay = Math.min(1, totalQ / 40);
+    const tl = int.trafficLight;
+    const maxRed = Math.max(tl.redDurationNS || 0, tl.redDurationEW || 0);
+    const starvationDelay = maxRed > 30 ? Math.min(2.0, Math.pow((maxRed - 30) / 20, 1.5)) : 0.0;
+    const rWait = -w4 * (queueDelay + starvationDelay);
+
+    // 5. Emergency Preemption
+    const rEmergency = decision && decision.action === 'EMRG_PREEMPT' ? 5.0 : 0.0;
+
+    const reward = rThroughput + rPressure + rSwitch + rWait + rEmergency;
+    return Math.round(Math.max(-15.0, Math.min(15.0, reward)) * 10) / 10;
   }
 
   getAverageReward() {

@@ -13,11 +13,14 @@ export class QApproximator {
   }
 
   _ensureInit(stateDim) {
-    if (this.weights || this.mlpLayers) return;
-    this.stateDim = stateDim;
-    this.weights = new Float32Array(this.actionCount * stateDim);
+    if (this.weights) return;
+    this.stateDim = this.stateDim || stateDim;
+    this.weights = new Float32Array(this.actionCount * this.stateDim);
     for (let i = 0; i < this.weights.length; i++) {
       this.weights[i] = (Math.random() - 0.5) * 0.01;
+    }
+    if (!this.bias) {
+      this.bias = new Float32Array(this.actionCount);
     }
   }
 
@@ -60,6 +63,9 @@ export class QApproximator {
 
   update(state, action, target, lr) {
     this._ensureInit(state.length);
+    if (!this.weights || !this.bias) return;
+    if (action < 0 || action >= this.actionCount) return;
+
     const base = action * this.stateDim;
     let predicted = this.bias[action];
     for (let i = 0; i < this.stateDim; i++) {
@@ -82,6 +88,9 @@ export class QApproximator {
   loadWeights(payload) {
     if (!payload) return;
 
+    this.stateDim = payload.stateDim || 10;
+    this.actionCount = payload.actionCount || 2;
+
     // Check for Deep MLP structure
     if (payload.layers && Array.isArray(payload.layers) && payload.layers.length > 0) {
       this.mlpLayers = payload.layers.map(layer => ({
@@ -90,22 +99,19 @@ export class QApproximator {
         weights: layer.weights, // 2D array [out_features][in_features]
         bias: new Float32Array(layer.bias),
       }));
-      this.stateDim = payload.stateDim || 10;
-      this.actionCount = payload.actionCount || 2;
-      return;
     }
 
-    // Linear fallback
-    const { weights, bias } = payload;
-    if (weights) {
-      const expectedStateDim = payload.stateDim || 10;
-      const expectedActionCount = payload.actionCount || 2;
-      this.actionCount = expectedActionCount;
-      this.stateDim = expectedStateDim;
-      this.weights = new Float32Array(weights);
+    // Always ensure linear weights and bias are initialized Float32Arrays
+    if (payload.weights && Array.isArray(payload.weights)) {
+      this.weights = new Float32Array(payload.weights);
+    } else if (!this.weights) {
+      this.weights = new Float32Array(this.actionCount * this.stateDim);
     }
-    if (bias) {
-      this.bias = new Float32Array(bias);
+
+    if (payload.bias && Array.isArray(payload.bias)) {
+      this.bias = new Float32Array(payload.bias);
+    } else if (!this.bias) {
+      this.bias = new Float32Array(this.actionCount);
     }
   }
 }

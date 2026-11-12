@@ -115,11 +115,19 @@ export class Renderer {
     const detail = this.camera.getDetail();
     const bounds = this.getViewportBounds(200);
 
-    // High-contrast slate-grey colors for dark mode readability
+    // Realistic Indian Road & Highway Asphalt Surface Shades
     const colors = { 
-      highway: '#5A6376',   // Lighter, higher contrast slate grey for highways
-      arterial: '#434B5C',  // Medium slate grey for arterial roads
-      local: '#2E3442'      // High contrast slate grey for local streets (clearly visible against night background)
+      motorway: '#475569',   // Expressways (e.g. Bangalore-Mysore NE-1)
+      trunk: '#3E4756',      // National Highways (e.g. NH-44)
+      primary: '#333B48',    // Major City Arterials (e.g. Outer Ring Road, MG Road)
+      secondary: '#2C3340',  // City Avenues (e.g. 100ft Road)
+      tertiary: '#252B36',   // Urban Collectors
+      residential: '#20252E',// Residential Streets
+      unclassified: '#20252E',
+      service: '#1A1E26',
+      highway: '#475569',
+      arterial: '#333B48',
+      local: '#20252E'
     };
 
     // Helper: Draw curved polyline path
@@ -133,7 +141,7 @@ export class Renderer {
       }
     };
 
-    // Helper: Draw parallel offset path (in meters) for multi-lane roads
+    // Helper: Draw parallel offset path (offset in canvas units / pixels)
     const drawOffsetPath = (geometry, offset) => {
       ctx.beginPath();
       for (let i = 0; i < geometry.length; i++) {
@@ -161,36 +169,17 @@ export class Renderer {
       }
     };
 
-    // First Pass: Draw road casing/outline (to merge intersections beautifully)
-    for (const [, edge] of graph.edges) {
-      if (edge.from > edge.to && graph.edges.has(`${edge.to}->${edge.from}`)) continue;
-      const from = graph.nodes.get(edge.from);
-      const to = graph.nodes.get(edge.to);
-      if (!from || !to) continue;
+    // Helper to extract full two-way physical road metrics
+    const getRoadInfo = (edge) => {
+      const oppEdge = graph.edges.get(`${edge.to}->${edge.from}`);
+      const isTwoWay = !!oppEdge;
+      const fwdLanes = edge.lanes || 1;
+      const oppLanes = isTwoWay ? (oppEdge.lanes || 1) : 0;
+      const totalLanes = fwdLanes + oppLanes;
+      return { isTwoWay, oppEdge, fwdLanes, oppLanes, totalLanes };
+    };
 
-      if (detail === 'overview' && edge.type === 'local') continue; // Skip local roads at overview zoom
-
-      if (!this.isInsideViewport(from.x, from.y, bounds) && !this.isInsideViewport(to.x, to.y, bounds)) {
-        continue;
-      }
-
-      // Determine physical scaled width
-      let baseW = edge.lanes * LANE_WIDTH_PX();
-      if (detail === 'overview') {
-        baseW = edge.type === 'highway' ? 3 / this.camera.zoom : 1.5 / this.camera.zoom;
-      } else if (detail === 'district') {
-        baseW = Math.max(baseW, (edge.type === 'local' ? 1.2 : 2.5) / this.camera.zoom);
-      }
-      const w = baseW * this.camera.zoom;
-
-      ctx.strokeStyle = '#0B0C0E'; // Match background/outline
-      ctx.lineWidth = w + 2 * Math.max(1, this.camera.zoom * 0.4);
-      ctx.lineCap = 'round';
-      drawEdgePath(edge.geometry);
-      ctx.stroke();
-    }
-
-    // Second Pass: Draw road fill and detailed markings
+    // First Pass: Draw road casing / dark asphalt shoulder (seamless junction merging)
     for (const [, edge] of graph.edges) {
       if (edge.from > edge.to && graph.edges.has(`${edge.to}->${edge.from}`)) continue;
       const from = graph.nodes.get(edge.from);
@@ -203,87 +192,160 @@ export class Renderer {
         continue;
       }
 
-      // Determine physical scaled width
-      let baseW = edge.lanes * LANE_WIDTH_PX();
+      const { totalLanes } = getRoadInfo(edge);
+      let baseW = totalLanes * LANE_WIDTH_PX();
       if (detail === 'overview') {
-        baseW = edge.type === 'highway' ? 3 / this.camera.zoom : 1.5 / this.camera.zoom;
+        baseW = totalLanes >= 4 ? 4 / this.camera.zoom : 2 / this.camera.zoom;
       } else if (detail === 'district') {
-        baseW = Math.max(baseW, (edge.type === 'local' ? 1.2 : 2.5) / this.camera.zoom);
+        baseW = Math.max(baseW, (totalLanes >= 4 ? 3.5 : 2.0) / this.camera.zoom);
       }
       const w = baseW * this.camera.zoom;
 
-      // Road fill
+      ctx.strokeStyle = '#0B0D12'; // Paved shoulder edge / road boundary
+      ctx.lineWidth = w + 2 * Math.max(1, this.camera.zoom * 0.4);
+      ctx.lineCap = 'round';
+      drawEdgePath(edge.geometry);
+      ctx.stroke();
+    }
+
+    // Second Pass: Draw road asphalt fill and realistic IRC Indian road markings
+    for (const [, edge] of graph.edges) {
+      if (edge.from > edge.to && graph.edges.has(`${edge.to}->${edge.from}`)) continue;
+      const from = graph.nodes.get(edge.from);
+      const to = graph.nodes.get(edge.to);
+      if (!from || !to) continue;
+
+      if (detail === 'overview' && edge.type === 'local') continue;
+
+      if (!this.isInsideViewport(from.x, from.y, bounds) && !this.isInsideViewport(to.x, to.y, bounds)) {
+        continue;
+      }
+
+      const { isTwoWay, oppLanes, fwdLanes, totalLanes } = getRoadInfo(edge);
+      let baseW = totalLanes * LANE_WIDTH_PX();
+      if (detail === 'overview') {
+        baseW = totalLanes >= 4 ? 4 / this.camera.zoom : 2 / this.camera.zoom;
+      } else if (detail === 'district') {
+        baseW = Math.max(baseW, (totalLanes >= 4 ? 3.5 : 2.0) / this.camera.zoom);
+      }
+      const w = baseW * this.camera.zoom;
+
+      // Road asphalt surface
       ctx.strokeStyle = colors[edge.type] || colors.local;
       ctx.lineWidth = w;
-      ctx.lineCap = 'round'; // round makes overlapping intersections look continuous
+      ctx.lineCap = 'round';
       drawEdgePath(edge.geometry);
       ctx.stroke();
 
-      // Center line and Lane Markings (LOD)
-      if (this.camera.zoom > 2.5) {
-        // Center line (solid or double yellow)
-        ctx.strokeStyle = 'rgba(255,200,0,0.5)';
-        ctx.lineWidth = Math.max(1, 0.15 * this.camera.zoom);
-        drawEdgePath(edge.geometry);
-        ctx.stroke();
-        
-        // Lane dividers (dashed white)
-        if (edge.lanes > 1) {
-          ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-          ctx.lineWidth = Math.max(0.5, 0.08 * this.camera.zoom);
-          ctx.setLineDash([6 * this.camera.zoom, 8 * this.camera.zoom]);
-          
-          for (let l = 1; l < edge.lanes; l++) {
-            const offsetM = (l - edge.lanes / 2) * REAL_LANE_WIDTH_M;
-            if (Math.abs(offsetM) > 0.1) {
-              drawOffsetPath(edge.geometry, offsetM);
+      // Detailed Markings (LOD: zoom > 2.0)
+      if (this.camera.zoom > 2.0) {
+        const lw = LANE_WIDTH_PX();
+
+        if (isTwoWay) {
+          // 1. Indian Highway Center Median / Dividing Line (IRC:35 standard)
+          // For multi-lane Indian roads (>= 4 total lanes): double yellow continuous lines
+          // For 2-lane roads: single solid yellow centerline
+          if (totalLanes >= 4) {
+            ctx.strokeStyle = 'rgba(255, 193, 7, 0.9)'; // IRC Amber Yellow
+            ctx.lineWidth = Math.max(1.0, 0.12 * this.camera.zoom);
+            const medianGap = 0.08 * lw;
+            drawOffsetPath(edge.geometry, -medianGap);
+            ctx.stroke();
+            drawOffsetPath(edge.geometry, medianGap);
+            ctx.stroke();
+          } else {
+            ctx.strokeStyle = 'rgba(255, 193, 7, 0.9)';
+            ctx.lineWidth = Math.max(1.0, 0.16 * this.camera.zoom);
+            drawEdgePath(edge.geometry);
+            ctx.stroke();
+          }
+
+          // 2. Dashed white lane dividers in Forward Carriageway (left of centerline)
+          if (fwdLanes > 1) {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+            ctx.lineWidth = Math.max(0.6, 0.08 * this.camera.zoom);
+            ctx.setLineDash([5 * this.camera.zoom, 7 * this.camera.zoom]);
+            for (let l = 1; l < fwdLanes; l++) {
+              const offset = -l * lw;
+              drawOffsetPath(edge.geometry, offset);
               ctx.stroke();
             }
+            ctx.setLineDash([]);
           }
-          ctx.setLineDash([]);
+
+          // 3. Dashed white lane dividers in Opposing Carriageway (right of centerline)
+          if (oppLanes > 1) {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+            ctx.lineWidth = Math.max(0.6, 0.08 * this.camera.zoom);
+            ctx.setLineDash([5 * this.camera.zoom, 7 * this.camera.zoom]);
+            for (let l = 1; l < oppLanes; l++) {
+              const offset = l * lw;
+              drawOffsetPath(edge.geometry, offset);
+              ctx.stroke();
+            }
+            ctx.setLineDash([]);
+          }
+        } else {
+          // One-way road: dashed white dividers across all lanes
+          if (fwdLanes > 1) {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+            ctx.lineWidth = Math.max(0.6, 0.08 * this.camera.zoom);
+            ctx.setLineDash([5 * this.camera.zoom, 7 * this.camera.zoom]);
+            for (let l = 1; l < fwdLanes; l++) {
+              const offset = (l - fwdLanes / 2) * lw;
+              drawOffsetPath(edge.geometry, offset);
+              ctx.stroke();
+            }
+            ctx.setLineDash([]);
+          }
         }
-        
-        // Stop lines
+
+        // 4. Approach Stop Lines (positioned across the approach carriageway for LHT)
         if (edge.geometry.length >= 2) {
           const ptEnd = edge.geometry[edge.geometry.length - 1];
           const ptPrev = edge.geometry[edge.geometry.length - 2];
           const sEnd = this.worldToScreen(ptEnd.x, ptEnd.y);
           const sPrev = this.worldToScreen(ptPrev.x, ptPrev.y);
-          
+
           const dx = sEnd.x - sPrev.x, dy = sEnd.y - sPrev.y;
           const len = Math.hypot(dx, dy) || 1;
           const dirX = dx / len, dirY = dy / len;
-          const perpX = -dirY, perpY = dirX;
-          
-          ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-          ctx.lineWidth = Math.max(1.5, 0.35 * this.camera.zoom);
-          const offset = 15 * this.camera.zoom;
-          
+          const perpX = -dirY, perpY = dirX; // points to RIGHT
+
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+          ctx.lineWidth = Math.max(2.0, 0.4 * this.camera.zoom);
+          const stopOffset = 15 * this.camera.zoom;
+
+          // Forward approach stop line (on the LEFT of centerline for Left-Hand Traffic)
+          const fwdCarriagewayW = fwdLanes * lw * this.camera.zoom;
           ctx.beginPath();
-          ctx.moveTo(sEnd.x - dirX * offset + perpX * (w/2), sEnd.y - dirY * offset + perpY * (w/2));
-          ctx.lineTo(sEnd.x - dirX * offset, sEnd.y - dirY * offset);
+          ctx.moveTo(sEnd.x - dirX * stopOffset, sEnd.y - dirY * stopOffset);
+          ctx.lineTo(sEnd.x - dirX * stopOffset - perpX * fwdCarriagewayW, sEnd.y - dirY * stopOffset - perpY * fwdCarriagewayW);
           ctx.stroke();
 
-          // Opposing stop line at start of segment
-          const ptStart = edge.geometry[0];
-          const ptNext = edge.geometry[1];
-          const sStart = this.worldToScreen(ptStart.x, ptStart.y);
-          const sNext = this.worldToScreen(ptNext.x, ptNext.y);
-          const dxS = sNext.x - sStart.x, dyS = sNext.y - sStart.y;
-          const lenS = Math.hypot(dxS, dyS) || 1;
-          const dirXS = dxS / lenS, dirYS = dyS / lenS;
-          const perpXS = -dirYS, perpYS = dirXS;
-          
-          ctx.beginPath();
-          ctx.moveTo(sStart.x + dirXS * offset - perpXS * (w/2), sStart.y + dirYS * offset - perpYS * (w/2));
-          ctx.lineTo(sStart.x + dirXS * offset, sStart.y + dirYS * offset);
-          ctx.stroke();
+          // Opposing approach stop line at start of segment
+          if (isTwoWay && oppLanes > 0) {
+            const ptStart = edge.geometry[0];
+            const ptNext = edge.geometry[1];
+            const sStart = this.worldToScreen(ptStart.x, ptStart.y);
+            const sNext = this.worldToScreen(ptNext.x, ptNext.y);
+            const dxS = sNext.x - sStart.x, dyS = sNext.y - sStart.y;
+            const lenS = Math.hypot(dxS, dyS) || 1;
+            const dirXS = dxS / lenS, dirYS = dyS / lenS;
+            const perpXS = -dirYS, perpYS = dirXS;
+
+            const oppCarriagewayW = oppLanes * lw * this.camera.zoom;
+            ctx.beginPath();
+            ctx.moveTo(sStart.x + dirXS * stopOffset, sStart.y + dirYS * stopOffset);
+            ctx.lineTo(sStart.x + dirXS * stopOffset + perpXS * oppCarriagewayW, sStart.y + dirYS * stopOffset + perpYS * oppCarriagewayW);
+            ctx.stroke();
+          }
         }
       }
 
       // Blocked indicator
       if (edge.blocked > 0) {
-        ctx.strokeStyle = 'rgba(255,180,0,0.3)';
+        ctx.strokeStyle = 'rgba(255, 59, 92, 0.4)';
         ctx.lineWidth = w;
         drawEdgePath(edge.geometry);
         ctx.stroke();
@@ -359,37 +421,69 @@ export class Renderer {
         ctx.stroke();
       }
 
-      // Traffic Police
+      // Traffic Police (Corner shoulder kiosk — NEVER hides the intersection junction)
       if (int.policeActive) {
         const time = Date.now();
         const isBlue = (time % 400) < 200;
         
-        // Pulsing aura
-        const pulse = (Math.sin(time / 150) + 1) / 2; // 0 to 1
-        ctx.beginPath();
-        ctx.arc(0, 0, 7 * z + pulse * 8 * z, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(${isBlue ? '61,158,255' : '255,59,92'}, ${0.8 - pulse * 0.8})`;
-        ctx.lineWidth = 2.5 * z;
-        ctx.stroke();
+        // Position at the shoulder curb corner (diagonal offset beyond road width)
+        const curbDist = patchRadius + 14 * z;
+        const kx = curbDist * 0.707;
+        const ky = -curbDist * 0.707; // Top-right corner shoulder
 
-        // Main body (flashing red/blue)
-        ctx.fillStyle = isBlue ? '#3D9EFF' : '#FF3B5C';
+        ctx.save();
+        ctx.translate(kx, ky);
+
+        // Subtle beacon strobe pulse (contained to kiosk)
+        const pulse = (Math.sin(time / 120) + 1) / 2;
         ctx.beginPath();
-        ctx.arc(0, 0, 7 * z, 0, Math.PI * 2);
-        ctx.fill();
-        
-        ctx.strokeStyle = '#FFFFFF';
+        ctx.arc(0, 0, 5.5 * z + pulse * 3.5 * z, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${isBlue ? '61,158,255' : '255,59,92'}, ${0.35 - pulse * 0.35})`;
         ctx.lineWidth = 1.5 * z;
         ctx.stroke();
 
-        // 'P' Badge
-        if (z > 1.2) {
+        // Kiosk base (professional traffic booth)
+        ctx.fillStyle = '#0F172A';
+        ctx.beginPath();
+        ctx.arc(0, 0, 5 * z, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = isBlue ? '#38BDF8' : '#FF3B5C';
+        ctx.lineWidth = 1.5 * z;
+        ctx.stroke();
+
+        // Police emblem 'P'
+        if (z > 1.0) {
           ctx.fillStyle = '#FFFFFF';
-          ctx.font = `bold ${8 * z}px sans-serif`;
+          ctx.font = `bold ${5.5 * z}px sans-serif`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText('P', 0, 1 * z);
+          ctx.fillText('P', 0, 0.5 * z);
         }
+
+        // Flashing LED beacon on top
+        ctx.fillStyle = isBlue ? '#38BDF8' : '#FF3B5C';
+        ctx.beginPath();
+        ctx.arc(0, -4.5 * z, 1.8 * z, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Small badge pill label when zoomed in
+        if (z > 2.0) {
+          ctx.font = `bold ${3.5 * z}px monospace`;
+          const text = 'POLICE CONTROL';
+          const txtW = ctx.measureText(text).width;
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+          ctx.roundRect(-txtW / 2 - 2 * z, 6 * z, txtW + 4 * z, 5 * z, 2 * z);
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
+          ctx.lineWidth = 0.8 * z;
+          ctx.stroke();
+          ctx.fillStyle = '#38BDF8';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(text, 0, 8.5 * z);
+        }
+
+        ctx.restore();
       }
 
       ctx.restore();
@@ -499,8 +593,8 @@ export class Renderer {
         continue;
       }
 
-      // Visual scale factors to make vehicles fit lane widths realistically (e.g. 0.90 for buses/trucks, 0.95 for others)
-      const visualScale = v.type === 'bus' || v.type === 'truck' ? 0.90 : 0.95;
+      // Accurate physical scale: cars take ~50% of 3.5m lane width, 2-wheelers ~23%, buses ~71%
+      const visualScale = 1.0;
 
       // Neighborhood zoom: scaled rotated rects based on physical vehicle length/width
       if (detail === 'neighborhood') {
@@ -740,34 +834,9 @@ export class Renderer {
     }
   }
 
-  // ── Crosswalk Markings ───────────────────────────────
+  // ── Crosswalk Markings (Disabled: purely vehicular traffic) ──
   drawCrosswalks(graph) {
-    // Only render crosswalks at street zoom
-    if (this.camera.getDetail() !== 'street') return;
-
-    const ctx = this.ctx;
-    const bounds = this.getViewportBounds(50);
-
-    for (const [, node] of graph.nodes) {
-      if (!this.isInsideViewport(node.x, node.y, bounds)) continue;
-      const s = this.worldToScreen(node.x, node.y);
-      const z = this.camera.zoom;
-      const size = 10 * z;
-
-      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-      ctx.lineWidth = 1.5 * z;
-      for (let i = -3; i <= 3; i++) {
-        const offset = i * 2.5 * z;
-        ctx.beginPath();
-        ctx.moveTo(s.x + offset, s.y - size);
-        ctx.lineTo(s.x + offset, s.y - size - 4 * z);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(s.x + offset, s.y + size);
-        ctx.lineTo(s.x + offset, s.y + size + 4 * z);
-        ctx.stroke();
-      }
-    }
+    // Pedestrian features temporarily removed as per instruction
   }
 
   // ── Minimap ─────────────────────────────────────────

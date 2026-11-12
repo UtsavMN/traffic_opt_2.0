@@ -126,8 +126,10 @@ export class Engine {
     for (const [, edge] of graph.edges) {
       const fromInt = this.intersections.get(edge.from);
       const toInt = this.intersections.get(edge.to);
-      if (fromInt) fromInt.maxLanes = Math.max(fromInt.maxLanes || 2, edge.lanes);
-      if (toInt) toInt.maxLanes = Math.max(toInt.maxLanes || 2, edge.lanes);
+      const oppEdge = graph.edges.get(`${edge.to}->${edge.from}`);
+      const roadLanes = oppEdge ? (edge.lanes + oppEdge.lanes) : edge.lanes;
+      if (fromInt) fromInt.maxLanes = Math.max(fromInt.maxLanes || 2, roadLanes);
+      if (toInt) toInt.maxLanes = Math.max(toInt.maxLanes || 2, roadLanes);
     }
 
     this.intersectionGrid = new SpatialGrid(80);
@@ -603,10 +605,8 @@ export class Engine {
     if (this.buildingsBitmap) {
       this.renderer.drawBuildings(this.buildingsBitmap);
     }
-    // Layer 2: Roads
+    // Layer 2: Roads (multi-lane Indian roadways with realistic shoulders & IRC markings)
     this.renderer.drawRoads(this.graph);
-    // Layer 2.5: Crosswalks
-    this.renderer.drawCrosswalks(this.graph);
     // Layer 3: Heatmap
     this.renderer.drawHeatmap(this.intersections);
     // Layer 3.2: Sensor Cones
@@ -617,9 +617,7 @@ export class Engine {
     this.renderer.drawVehicles(this.vehicles, this.timeOfDay.isNight);
     // Layer 5: Cyclists
     this.renderer.drawCyclists(this.cyclists);
-    // Layer 6.5: Police
-    for (const p of this.policeUnits) p.render(this.renderer.ctx, this.timeOfDay.isNight);
-    // Layer 7: Intersections + signals
+    // Layer 6: Intersections + Signals + Traffic Police Kiosk
     this.renderer.drawIntersections(this.intersections);
     // Layer 8: Accidents
     this.accidents.render(this.renderer.ctx);

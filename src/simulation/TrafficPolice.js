@@ -38,39 +38,8 @@ export class TrafficPolice {
   }
 
   render(ctx, isNight) {
-    if (!this.active) return;
-    
-    ctx.save();
-    ctx.translate(this.pos.x, this.pos.y);
-    
-    // Pulse ring
-    const pulse = (Math.sin(performance.now() * 0.005) + 1) / 2;
-    const r = (10 + pulse * 10) * CANVAS_SCALE;
-    
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(0, 102, 255, ${0.3 * (1 - pulse)})`;
-    ctx.fill();
-    
-    // Police icon/dot
-    ctx.beginPath();
-    ctx.arc(0, 0, 5 * CANVAS_SCALE, 0, Math.PI * 2);
-    ctx.fillStyle = '#0066FF';
-    ctx.fill();
-    
-    // Siren flashes
-    if (Math.floor(performance.now() / 150) % 2 === 0) {
-      ctx.fillStyle = '#FF0000';
-      ctx.beginPath();
-      ctx.arc(-3 * CANVAS_SCALE, 0, 3 * CANVAS_SCALE, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      ctx.fillStyle = '#0000FF';
-      ctx.beginPath();
-      ctx.arc(3 * CANVAS_SCALE, 0, 3 * CANVAS_SCALE, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    ctx.restore();
+    // Traffic police kiosk is rendered with proper screen-space camera transforms
+    // and placed at the roadside corner curb in Renderer.drawIntersections
+    // to guarantee 100% visibility of intersection signals, stop lines, and traffic.
   }
 }

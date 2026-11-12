@@ -1,7 +1,8 @@
 import { Vector2 } from './Vector2.js';
+import { LANE_WIDTH_PX, CANVAS_SCALE } from '../constants.js';
 
 /**
- * Cyclist — Bike lane entity, follows roads but at slower speeds
+ * Cyclist — Bike lane entity, follows roads on the left shoulder (LHT)
  */
 let cyclistIdCounter = 0;
 
@@ -52,10 +53,20 @@ export class Cyclist {
     const len = Math.sqrt(dx * dx + dy * dy);
     if (len === 0) return;
     const dirX = dx / len, dirY = dy / len;
-    const perpX = -dirY, perpY = dirX;
+    const perpX = -dirY, perpY = dirX; // points to the RIGHT
     const t = this.segmentProgress;
-    this.pos.x = from.x + dx * t + perpX * this.laneOffset;
-    this.pos.y = from.y + dy * t + perpY * this.laneOffset;
+
+    // Cyclists ride on the outer left road shoulder in Left-Hand Traffic
+    const oppEdge = this.graph.edges.get(`${edge.to}->${edge.from}`);
+    const isTwoWay = !!oppEdge;
+    const numLanes = edge.lanes || 1;
+    const lw = LANE_WIDTH_PX();
+    const bikeOffset = isTwoWay
+      ? -(numLanes * lw + 1.2 * CANVAS_SCALE)
+      : -(numLanes * 0.5 * lw + 1.2 * CANVAS_SCALE);
+
+    this.pos.x = from.x + dx * t + perpX * bikeOffset;
+    this.pos.y = from.y + dy * t + perpY * bikeOffset;
     this.heading = Math.atan2(dy, dx);
   }
 

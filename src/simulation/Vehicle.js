@@ -108,12 +108,60 @@ export class Vehicle {
 
     if (this.currentEdgeId !== edge.id) {
       this.currentEdgeId = edge.id;
-      // Default to rightmost lane, or randomize safely
-      this.laneIndex = this.type === 'bus' ? edge.lanes - 1 : Math.floor(Math.random() * edge.lanes);
-      if (this.sirenActive) this.laneIndex = Math.floor(Math.random() * edge.lanes);
+      const numLanes = edge.lanes || 1;
+
+      // Real Indian Road Lane Distribution:
+      // - Lane 0 = Leftmost curb lane (buses, trucks, auto-rickshaws, slow movers)
+      // - Higher lanes = Faster overtaking lanes towards the center dividing line
+      if (numLanes <= 1) {
+        this.laneIndex = 0;
+      } else if (this.type === 'bus' || this.type === 'truck' || this.type === 'rickshaw') {
+        this.laneIndex = 0; // Heavy/slow traffic sticks to the left curb lane
+      } else if (this.sirenActive) {
+        this.laneIndex = numLanes - 1; // Emergency vehicles take the fast lane
+      } else if (this.type === 'car') {
+        // Cars distribute across lanes (preferring lane 1 on multi-lane highways)
+        this.laneIndex = (numLanes >= 3)
+          ? (Math.random() < 0.65 ? 1 : (Math.random() < 0.5 ? 2 : 0))
+          : (Math.random() < 0.65 ? 1 : 0);
+      } else {
+        // Motorcycles distribute freely
+        this.laneIndex = Math.floor(Math.random() * numLanes);
+      }
+      this.laneIndex = Math.max(0, Math.min(numLanes - 1, this.laneIndex));
     }
     
-    const targetLaneOffset = (this.laneIndex - edge.lanes / 2 + 0.5) * LANE_WIDTH_PX();
+    // Indian Left-Hand Traffic (LHT) Lateral Offset:
+    // When an opposing edge exists, the road carries traffic in both directions along the same centerline.
+    // perpX, perpY points to the RIGHT of the vehicle's heading.
+    // In India (LHT), forward vehicles travel on the LEFT side of the centerline (negative offset).
+    const oppEdge = this.graph ? this.graph.edges.get(`${edge.to}->${edge.from}`) : null;
+    const isTwoWay = !!oppEdge;
+    const numLanes = edge.lanes || 1;
+    const lw = LANE_WIDTH_PX();
+
+    let baseOffset = 0;
+    if (isTwoWay) {
+      // Innermost fast lane (numLanes - 1) is adjacent to yellow median line: -0.5 * lw
+      // Outermost curb lane (0) is adjacent to left road shoulder: -(numLanes - 0.5) * lw
+      baseOffset = -((numLanes - 1 - this.laneIndex) + 0.5) * lw;
+    } else {
+      // One-way carriageway: distributed symmetrically about the centerline
+      baseOffset = (this.laneIndex - (numLanes - 1) / 2) * lw;
+    }
+
+    // Intra-lane lateral staggering (Indian multi-vehicle filtering):
+    // Narrow 2-wheelers (0.8m) stagger left/right so 2 motorcycles can ride abreast in 1 lane.
+    let intraLaneOffset = 0;
+    if (this.type === 'motorcycle') {
+      const charCode = this.id.charCodeAt(this.id.length - 1) || 0;
+      const stagger = (charCode % 2 === 0 ? 0.22 : -0.22);
+      intraLaneOffset = stagger * lw;
+    } else if (this.type === 'rickshaw') {
+      intraLaneOffset = -0.10 * lw; // Auto-rickshaws hug the left curb
+    }
+
+    const targetLaneOffset = baseOffset + intraLaneOffset;
     
     if (this.laneOffset === undefined) this.laneOffset = targetLaneOffset;
     // Smooth lane transition

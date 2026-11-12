@@ -78,14 +78,54 @@ export function parseOSMRoads(geojson, bounds = null) {
     let currentSegmentStartKey = null;
     let currentSegmentStartId = null;
 
-    const DEFAULT_LANES = { motorway:4, trunk:3, primary:2, secondary:2, tertiary:1, residential:1, unclassified:1, service:1 };
+    // Indian Road Hierarchy Standards (IRC:73 / IRC:86):
+    // Multi-lane highways & arterials with designated per-direction lanes
+    const DEFAULT_LANES = {
+      motorway: 4,      // 4 lanes each direction (8-lane expressways)
+      trunk: 3,         // 3 lanes each direction (6-lane national highways e.g. NH-44)
+      primary: 3,       // 3 lanes each direction (6-lane major arterials e.g. Outer Ring Road)
+      secondary: 2,     // 2 lanes each direction (4-lane city avenues e.g. 100ft road)
+      tertiary: 2,      // 2 lanes each direction (4-lane collector streets)
+      residential: 1,   // 1 lane each direction (2-lane urban street)
+      unclassified: 1,  // 1 lane each direction
+      service: 1
+    };
     const DEFAULT_SPEED_KMH = { motorway:100, trunk:80, primary:60, secondary:50, tertiary:40, residential:30, unclassified:30, service:15 };
     
     const hw = props.highway || 'unclassified';
-    const lanes = parseInt(props.lanes) || DEFAULT_LANES[hw] || 1;
     const speedLimit = parseInt(props.maxspeed) || DEFAULT_SPEED_KMH[hw] || 30;
     const oneway = props.oneway === 'yes' || props.oneway === '1' || hw === 'motorway' || props.junction === 'roundabout';
     const type = hw;
+
+    let forwardLanes = 1;
+    let backwardLanes = 1;
+
+    if (oneway) {
+      forwardLanes = parseInt(props.lanes) || DEFAULT_LANES[hw] || 2;
+      backwardLanes = 0;
+    } else {
+      if (props['lanes:forward']) {
+        forwardLanes = parseInt(props['lanes:forward']) || 1;
+      }
+      if (props['lanes:backward']) {
+        backwardLanes = parseInt(props['lanes:backward']) || 1;
+      }
+      if (!props['lanes:forward'] && !props['lanes:backward']) {
+        if (props.lanes) {
+          const totalParsed = parseInt(props.lanes);
+          if (totalParsed > 1) {
+            forwardLanes = Math.max(1, Math.floor(totalParsed / 2));
+            backwardLanes = totalParsed - forwardLanes;
+          } else {
+            forwardLanes = 1;
+            backwardLanes = 1;
+          }
+        } else {
+          forwardLanes = DEFAULT_LANES[hw] || 1;
+          backwardLanes = forwardLanes;
+        }
+      }
+    }
 
     let currentSegmentGeom = [];
 
@@ -102,10 +142,10 @@ export function parseOSMRoads(geojson, bounds = null) {
         const nodeId = nodes.get(key);
         if (currentSegmentStartId && currentSegmentStartId !== nodeId) {
           // Add edge with waypoints
-          graph.addEdge(currentSegmentStartId, nodeId, lanes, type, speedLimit, currentSegmentGeom);
-          if (!oneway) {
+          graph.addEdge(currentSegmentStartId, nodeId, forwardLanes, type, speedLimit, currentSegmentGeom);
+          if (!oneway && backwardLanes > 0) {
             const revGeom = [...currentSegmentGeom].reverse();
-            graph.addEdge(nodeId, currentSegmentStartId, lanes, type, speedLimit, revGeom);
+            graph.addEdge(nodeId, currentSegmentStartId, backwardLanes, type, speedLimit, revGeom);
           }
         }
         currentSegmentStartId = nodeId;

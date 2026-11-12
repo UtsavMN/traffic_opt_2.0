@@ -421,67 +421,33 @@ export class Renderer {
         ctx.stroke();
       }
 
-      // Traffic Police (Corner shoulder kiosk — NEVER hides the intersection junction)
+      // Traffic Police (Minimal small 'P' indicator — zero visual harm/clutter)
       if (int.policeActive) {
-        const time = Date.now();
-        const isBlue = (time % 400) < 200;
-        
-        // Position at the shoulder curb corner (diagonal offset beyond road width)
-        const curbDist = patchRadius + 14 * z;
+        const curbDist = patchRadius + 6 * z;
         const kx = curbDist * 0.707;
-        const ky = -curbDist * 0.707; // Top-right corner shoulder
+        const ky = -curbDist * 0.707;
 
         ctx.save();
         ctx.translate(kx, ky);
 
-        // Subtle beacon strobe pulse (contained to kiosk)
-        const pulse = (Math.sin(time / 120) + 1) / 2;
-        ctx.beginPath();
-        ctx.arc(0, 0, 5.5 * z + pulse * 3.5 * z, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(${isBlue ? '61,158,255' : '255,59,92'}, ${0.35 - pulse * 0.35})`;
-        ctx.lineWidth = 1.5 * z;
-        ctx.stroke();
+        const r = Math.max(2.5, 3.0 * z);
 
-        // Kiosk base (professional traffic booth)
-        ctx.fillStyle = '#0F172A';
+        // Small neat circular badge
+        ctx.fillStyle = '#1D4ED8'; // Clean police blue
         ctx.beginPath();
-        ctx.arc(0, 0, 5 * z, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = isBlue ? '#38BDF8' : '#FF3B5C';
-        ctx.lineWidth = 1.5 * z;
-        ctx.stroke();
-
-        // Police emblem 'P'
-        if (z > 1.0) {
-          ctx.fillStyle = '#FFFFFF';
-          ctx.font = `bold ${5.5 * z}px sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText('P', 0, 0.5 * z);
-        }
-
-        // Flashing LED beacon on top
-        ctx.fillStyle = isBlue ? '#38BDF8' : '#FF3B5C';
-        ctx.beginPath();
-        ctx.arc(0, -4.5 * z, 1.8 * z, 0, Math.PI * 2);
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
         ctx.fill();
 
-        // Small badge pill label when zoomed in
-        if (z > 2.0) {
-          ctx.font = `bold ${3.5 * z}px monospace`;
-          const text = 'POLICE CONTROL';
-          const txtW = ctx.measureText(text).width;
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-          ctx.roundRect(-txtW / 2 - 2 * z, 6 * z, txtW + 4 * z, 5 * z, 2 * z);
-          ctx.fill();
-          ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
-          ctx.lineWidth = 0.8 * z;
-          ctx.stroke();
-          ctx.fillStyle = '#38BDF8';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(text, 0, 8.5 * z);
-        }
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = Math.max(0.6, 0.8 * z);
+        ctx.stroke();
+
+        // Small white 'P'
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = `bold ${Math.max(3, 3.6 * z)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('P', 0, 0.3 * z);
 
         ctx.restore();
       }

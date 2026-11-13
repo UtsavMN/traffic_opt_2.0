@@ -5,6 +5,8 @@
  * modal split, road hierarchy distribution, and IISc/CiSTUP economic impact.
  */
 
+import { CANVAS_SCALE } from '../constants.js';
+
 export function computeBangaloreAnalytics(engine, scenarioId = 'bengaluru_central') {
   if (!engine || !engine.graph) {
     return null;
@@ -23,7 +25,7 @@ export function computeBangaloreAnalytics(engine, scenarioId = 'bengaluru_centra
 
   for (const [, edge] of graph.edges) {
     // Length in meters = length in pixels / CANVAS_SCALE
-    const scale = engine.canvasScale || 1.68;
+    const scale = engine.canvasScale || CANVAS_SCALE || 1.68;
     const lenM = (edge.length || 0) / scale;
     const lenKm = lenM / 1000;
     totalKm += lenKm;

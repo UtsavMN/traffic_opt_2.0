@@ -1,6 +1,6 @@
 import { SIGNAL_COLORS } from './TrafficLight.js';
 import { Camera } from './Camera.js';
-import { LANE_WIDTH_PX, REAL_LANE_WIDTH_M, ROAD_TIER_CONFIG, getLaneWidthM } from '../constants.js';
+import { LANE_WIDTH_PX, REAL_LANE_WIDTH_M, ROAD_TIER_CONFIG, getLaneWidthM, CANVAS_SCALE } from '../constants.js';
 
 /**
  * Renderer — All canvas draw calls, layered back-to-front

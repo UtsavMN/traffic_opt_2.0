@@ -74,6 +74,7 @@ export class Vehicle {
     this.distanceTravelled = 0;
     this.alive = true;
     this.inViewport = true; // No more macro/micro split
+    this.isOccluded = false; // Hidden when passing beneath flyover deck or through underpass tunnel
     
     this.currentEdgeId = null;
     this.laneIndex = undefined;
@@ -85,6 +86,11 @@ export class Vehicle {
   get currentEdge() {
     if (this.routeIndex >= this.route.length - 1) return null;
     return this.graph.getEdge(this.route[this.routeIndex], this.route[this.routeIndex + 1]);
+  }
+
+  get layer() {
+    const edge = this.currentEdge;
+    return edge ? (edge.layer || 0) : 0;
   }
 
   get nextNode() {
@@ -546,6 +552,26 @@ export class Vehicle {
       }
     }
     
+    // Top-down vertical occlusion:
+    // If inside an underpass tunnel or crossing beneath an overhead flyover deck,
+    // hide the vehicle momentarily until it emerges back into view!
+    let occluded = false;
+    if (edge.isTunnel || (edge.layer || 0) < 0) {
+      if (this.segmentProgress > 0.05 && this.segmentProgress < 0.95) {
+        occluded = true;
+      }
+    }
+    if (!occluded && edge.underpasses && edge.underpasses.length > 0) {
+      for (let i = 0; i < edge.underpasses.length; i++) {
+        const up = edge.underpasses[i];
+        if (this.segmentProgress >= up.startProgress && this.segmentProgress <= up.endProgress) {
+          occluded = true;
+          break;
+        }
+      }
+    }
+    this.isOccluded = occluded;
+
     this._updatePosition(dt);
   }
 

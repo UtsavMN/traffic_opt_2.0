@@ -48,12 +48,22 @@ export function parseOSMRoads(geojson, bounds = null) {
   const nodeCount = new Map();
   roads.forEach(road => {
     const coords = road.geometry.coordinates;
+    const props = road.properties || {};
+    const nameLower = (props.name || '').toLowerCase();
+    let rLayer = 0;
+    if (props.layer !== undefined && props.layer !== null) rLayer = parseInt(props.layer) || 0;
+    if (props.bridge && props.bridge !== 'no' && rLayer === 0) rLayer = 1;
+    if (props.tunnel && props.tunnel !== 'no' && rLayer === 0) rLayer = -1;
+    if (nameLower.includes('flyover') && rLayer <= 0) rLayer = 1;
+    if (nameLower.includes('underpass') && rLayer >= 0) rLayer = -1;
+
     for (let i = 0; i < coords.length; i++) {
       const coord = coords[i];
       const key = `${coord[0].toFixed(6)},${coord[1].toFixed(6)}`;
-      const current = nodeCount.get(key) || { count: 0, isEnd: false, lng: coord[0], lat: coord[1] };
+      const current = nodeCount.get(key) || { count: 0, isEnd: false, lng: coord[0], lat: coord[1], layers: new Set() };
       current.count++;
       if (i === 0 || i === coords.length - 1) current.isEnd = true;
+      current.layers.add(rLayer);
       nodeCount.set(key, current);
     }
   });
@@ -66,18 +76,40 @@ export function parseOSMRoads(geojson, bounds = null) {
       const id = `n${nodeIdCounter++}`;
       nodes.set(key, id);
       const pos = transform(data.lng, data.lat);
-      // We will assign zones later, default to residential
-      graph.addNode(id, pos.x, pos.y, 'junction', 'residential');
+      let nodeLayer = 0;
+      if (data.layers.has(0)) nodeLayer = 0;
+      else if (data.layers.has(1)) nodeLayer = 1;
+      else if (data.layers.has(-1)) nodeLayer = -1;
+      graph.addNode(id, pos.x, pos.y, 'junction', 'residential', nodeLayer);
     }
   }
 
-  // 3. Create edges with authentic Indian / Bengaluru road hierarchy
+  // 3. Create edges with authentic Indian / Bengaluru road hierarchy & elevation layers
   roads.forEach(road => {
     const props = road.properties || {};
     const coords = road.geometry.coordinates;
     const name = props.name || '';
     const nameLower = name.toLowerCase();
     
+    let layer = 0;
+    if (props.layer !== undefined && props.layer !== null) {
+      layer = parseInt(props.layer) || 0;
+    }
+    let isBridge = (props.bridge && props.bridge !== 'no');
+    let isTunnel = (props.tunnel && props.tunnel !== 'no');
+
+    // Bengaluru infrastructure naming cues
+    if (nameLower.includes('flyover') || nameLower.includes('elevated') || nameLower.includes('overpass')) {
+      isBridge = true;
+      if (layer <= 0) layer = 1;
+    } else if (nameLower.includes('underpass') || nameLower.includes('subway')) {
+      isTunnel = true;
+      if (layer >= 0) layer = -1;
+    }
+
+    if (isBridge && layer <= 0) layer = 1;
+    if (isTunnel && layer >= 0) layer = -1;
+
     let currentSegmentStartKey = null;
     let currentSegmentStartId = null;
 
@@ -147,11 +179,11 @@ export function parseOSMRoads(geojson, bounds = null) {
       if (nodes.has(key)) {
         const nodeId = nodes.get(key);
         if (currentSegmentStartId && currentSegmentStartId !== nodeId) {
-          // Add edge with waypoints and road hierarchy metadata
-          graph.addEdge(currentSegmentStartId, nodeId, forwardLanes, type, speedLimit, currentSegmentGeom, roadTier, laneWidthM, name, divider);
+          // Add edge with waypoints, road hierarchy and elevation layers
+          graph.addEdge(currentSegmentStartId, nodeId, forwardLanes, type, speedLimit, currentSegmentGeom, roadTier, laneWidthM, name, divider, layer, isBridge, isTunnel);
           if (!oneway && backwardLanes > 0) {
             const revGeom = [...currentSegmentGeom].reverse();
-            graph.addEdge(nodeId, currentSegmentStartId, backwardLanes, type, speedLimit, revGeom, roadTier, laneWidthM, name, divider);
+            graph.addEdge(nodeId, currentSegmentStartId, backwardLanes, type, speedLimit, revGeom, roadTier, laneWidthM, name, divider, layer, isBridge, isTunnel);
           }
         }
         currentSegmentStartId = nodeId;
@@ -166,6 +198,9 @@ export function parseOSMRoads(geojson, bounds = null) {
 
   // 5. Cluster nearby nodes (flower effect fix)
   clusterNearbyNodes(graph, 1); // 1 = default scale for now
+
+  // 6. Compute vertical grade separations & underpass zones
+  computeGradeSeparations(graph);
 
   return { graph, transform };
 }
@@ -211,10 +246,12 @@ export function clusterNearbyNodes(graph, CANVAS_SCALE) {
   for (const node of nodes) {
     if (merged.has(node.id)) continue;
     
-    // Find nearby nodes
+    // Find nearby nodes on the EXACT SAME ELEVATION LAYER
     const nearby = [];
     for (const n of graph.getAllNodes()) {
       if (n.id === node.id || merged.has(n.id)) continue;
+      // Do not merge flyover nodes with surface nodes or underpasses!
+      if ((n.layer || 0) !== (node.layer || 0)) continue;
       const dist = Math.sqrt((n.x - node.x)**2 + (n.y - node.y)**2);
       if (dist < THRESHOLD_PX) nearby.push(n);
     }
@@ -229,8 +266,8 @@ export function clusterNearbyNodes(graph, CANVAS_SCALE) {
     const cy = cluster.reduce((s,n) => s+n.y, 0) / cluster.length;
     
     const superId = `sj_${node.id}`;
-    // Add the super junction node
-    graph.addNode(superId, cx, cy, 'junction', 'residential');
+    // Add the super junction node preserving elevation layer
+    graph.addNode(superId, cx, cy, 'junction', 'residential', node.layer || 0);
     
     for (const n of cluster) { 
       merged.set(n.id, superId); 
@@ -263,11 +300,127 @@ export function clusterNearbyNodes(graph, CANVAS_SCALE) {
         if (startNode) remappedGeom[0] = { x: startNode.x, y: startNode.y };
         if (endNode) remappedGeom[remappedGeom.length - 1] = { x: endNode.x, y: endNode.y };
       }
-      graph.addEdge(newFrom, newTo, edge.lanes, edge.type, edge.speedLimit, remappedGeom, edge.roadTier, edge.laneWidthM, edge.name, edge.divider);
+      graph.addEdge(
+        newFrom, newTo,
+        edge.lanes, edge.type, edge.speedLimit,
+        remappedGeom,
+        edge.roadTier, edge.laneWidthM, edge.name, edge.divider,
+        edge.layer, edge.isBridge, edge.isTunnel
+      );
     }
   }
 
   console.log(`[Cluster] ${nodes.length} -> ${graph.getAllNodes().length} nodes after super-junction merging`);
   // Pre-filter spawnable nodes again (degree >= 2) after cluster deletion
   graph.spawnableNodes = graph.getAllNodes().filter(n => graph.getDegree(n.id) >= 2);
+}
+
+/**
+ * 2D Line segment intersection helper
+ */
+function getLineIntersection(p1, p2, p3, p4) {
+  const d = (p2.x - p1.x) * (p4.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x);
+  if (Math.abs(d) < 1e-9) return null;
+  const t = ((p3.x - p1.x) * (p4.y - p3.y) - (p3.y - p1.y) * (p4.x - p3.x)) / d;
+  const u = ((p3.x - p1.x) * (p2.y - p1.y) - (p3.y - p1.y) * (p2.x - p1.x)) / d;
+  if (t >= 0.001 && t <= 0.999 && u >= 0.001 && u <= 0.999) {
+    return {
+      x: p1.x + t * (p2.x - p1.x),
+      y: p1.y + t * (p2.y - p1.y),
+      t, u
+    };
+  }
+  return null;
+}
+
+/**
+ * Identifies grade-separated crossings where elevated flyovers pass above surface roads.
+ * Marks underpass zones on surface edges so vehicles passing below are hidden momentarily.
+ */
+export function computeGradeSeparations(graph) {
+  const flyoverEdges = [];
+  const surfaceEdges = [];
+
+  for (const [, edge] of graph.edges) {
+    if (edge.layer > 0 || edge.isBridge) {
+      flyoverEdges.push(edge);
+    } else {
+      surfaceEdges.push(edge);
+    }
+  }
+
+  if (flyoverEdges.length === 0 || surfaceEdges.length === 0) return;
+
+  let separationCount = 0;
+  for (const surfaceEdge of surfaceEdges) {
+    const sGeom = surfaceEdge.geometry;
+    if (!sGeom || sGeom.length < 2) continue;
+
+    // Cumulative distances along surface edge
+    const sDists = [0];
+    for (let i = 0; i < sGeom.length - 1; i++) {
+      const d = Math.hypot(sGeom[i+1].x - sGeom[i].x, sGeom[i+1].y - sGeom[i].y);
+      sDists.push(sDists[i] + d);
+    }
+    const totalSurfaceLen = sDists[sDists.length - 1] || surfaceEdge.length || 1;
+
+    for (const flyoverEdge of flyoverEdges) {
+      // Skip connected ramp edges (these are transitions, not grade-separated crossings)
+      if (surfaceEdge.from === flyoverEdge.from || surfaceEdge.from === flyoverEdge.to ||
+          surfaceEdge.to === flyoverEdge.from || surfaceEdge.to === flyoverEdge.to) {
+        continue;
+      }
+
+      const fGeom = flyoverEdge.geometry;
+      if (!fGeom || fGeom.length < 2) continue;
+
+      for (let sIdx = 0; sIdx < sGeom.length - 1; sIdx++) {
+        const sp1 = sGeom[sIdx], sp2 = sGeom[sIdx + 1];
+
+        for (let fIdx = 0; fIdx < fGeom.length - 1; fIdx++) {
+          const fp1 = fGeom[fIdx], fp2 = fGeom[fIdx + 1];
+
+          const inter = getLineIntersection(sp1, sp2, fp1, fp2);
+          if (inter) {
+            const segDist = Math.hypot(sp2.x - sp1.x, sp2.y - sp1.y);
+            const distAlong = sDists[sIdx] + inter.t * segDist;
+            const progress = Math.max(0, Math.min(1, distAlong / totalSurfaceLen));
+
+            // Estimate flyover bridge deck footprint (lanes * width + crash barrier buffer)
+            const flyoverDeckWidthM = (flyoverEdge.lanes || 2) * (flyoverEdge.laneWidthM || 3.2);
+            const halfSpanPx = Math.max(12, flyoverDeckWidthM * 1.5);
+            const halfSpanProgress = halfSpanPx / totalSurfaceLen;
+
+            const startProgress = Math.max(0, progress - halfSpanProgress);
+            const endProgress = Math.min(1, progress + halfSpanProgress);
+
+            surfaceEdge.underpasses.push({
+              startProgress,
+              endProgress,
+              flyoverName: flyoverEdge.name || 'Flyover',
+              crossingPoint: { x: inter.x, y: inter.y }
+            });
+            separationCount++;
+          }
+        }
+      }
+    }
+
+    // Merge overlapping underpass intervals on this edge
+    if (surfaceEdge.underpasses.length > 1) {
+      surfaceEdge.underpasses.sort((a, b) => a.startProgress - b.startProgress);
+      const merged = [surfaceEdge.underpasses[0]];
+      for (let i = 1; i < surfaceEdge.underpasses.length; i++) {
+        const curr = surfaceEdge.underpasses[i];
+        const last = merged[merged.length - 1];
+        if (curr.startProgress <= last.endProgress) {
+          last.endProgress = Math.max(last.endProgress, curr.endProgress);
+        } else {
+          merged.push(curr);
+        }
+      }
+      surfaceEdge.underpasses = merged;
+    }
+  }
+  console.log(`[GradeSeparations] Identified ${separationCount} underpass crossings beneath elevated flyovers`);
 }

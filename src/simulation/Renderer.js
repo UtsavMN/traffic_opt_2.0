@@ -108,12 +108,18 @@ export class Renderer {
 
   // ── Layer 2: Roads ───────────────────────────────────
   // ── Layer 2: Roads ───────────────────────────────────
-  // Removed unused cacheRoads method to optimize initialization
+  drawRoads(graph, layerFilter = 'all') {
+    if (layerFilter === 'all') {
+      this.drawRoads(graph, 'surface');
+      this.drawRoads(graph, 'flyover');
+      return;
+    }
 
-  drawRoads(graph) {
     const ctx = this.ctx;
     const detail = this.camera.getDetail();
     const bounds = this.getViewportBounds(200);
+    const z = this.camera.zoom;
+    const isFlyoverPass = (layerFilter === 'flyover');
 
     // Realistic Indian Road & Highway Asphalt Surface Shades
     const colors = { 
@@ -184,8 +190,43 @@ export class Renderer {
       return { isTwoWay, oppEdge, fwdLanes, oppLanes, totalLanes, laneWidthM, lw, roadTier, divider, tierConfig };
     };
 
-    // First Pass: Draw road casing / dark asphalt shoulder (seamless junction merging)
+    // Pass 0 (Flyover Only): Realistic 3D Drop Shadow cast onto surface below
+    if (isFlyoverPass) {
+      ctx.save();
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.70)';
+      ctx.shadowBlur = 12 * z;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 7 * z;
+      ctx.strokeStyle = '#141824';
+      ctx.lineCap = 'round';
+
+      for (const [, edge] of graph.edges) {
+        if (!((edge.layer || 0) > 0 || edge.isBridge)) continue;
+        if (edge.from > edge.to && graph.edges.has(`${edge.to}->${edge.from}`)) continue;
+        const from = graph.nodes.get(edge.from);
+        const to = graph.nodes.get(edge.to);
+        if (!from || !to) continue;
+        if (!this.isInsideViewport(from.x, from.y, bounds) && !this.isInsideViewport(to.x, to.y, bounds)) continue;
+
+        const { totalLanes, lw } = getRoadInfo(edge);
+        let baseW = totalLanes * lw;
+        if (detail === 'overview') baseW = 4.6 / z;
+        else if (detail === 'district') baseW = Math.max(baseW, 3.8 / z);
+        const w = baseW * z;
+
+        ctx.lineWidth = w + 4 * Math.max(1, z * 0.4);
+        drawEdgePath(edge.geometry);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // Pass 1: Road Casing / Girder Casing (seamless junction merging)
     for (const [, edge] of graph.edges) {
+      const isElevated = (edge.layer || 0) > 0 || edge.isBridge;
+      if (isFlyoverPass && !isElevated) continue;
+      if (!isFlyoverPass && isElevated) continue;
+
       if (edge.from > edge.to && graph.edges.has(`${edge.to}->${edge.from}`)) continue;
       const from = graph.nodes.get(edge.from);
       const to = graph.nodes.get(edge.to);
@@ -198,21 +239,33 @@ export class Renderer {
       const { totalLanes, lw, roadTier, tierConfig } = getRoadInfo(edge);
       let baseW = totalLanes * lw;
       if (detail === 'overview') {
-        baseW = roadTier === 'arterial' ? 4.2 / this.camera.zoom : (roadTier === 'main' ? 2.6 / this.camera.zoom : 1.4 / this.camera.zoom);
+        baseW = roadTier === 'arterial' ? 4.2 / z : (roadTier === 'main' ? 2.6 / z : 1.4 / z);
       } else if (detail === 'district') {
-        baseW = Math.max(baseW, (roadTier === 'arterial' ? 3.6 : (roadTier === 'main' ? 2.4 : 1.6)) / this.camera.zoom);
+        baseW = Math.max(baseW, (roadTier === 'arterial' ? 3.6 : (roadTier === 'main' ? 2.4 : 1.6)) / z);
       }
-      const w = baseW * this.camera.zoom;
+      const w = baseW * z;
 
-      ctx.strokeStyle = tierConfig.casingColor || '#07090C'; // Paved shoulder edge / road boundary
-      ctx.lineWidth = w + (roadTier === 'arterial' ? 2.6 : 1.4) * Math.max(1, this.camera.zoom * 0.4);
+      if (isElevated) {
+        ctx.strokeStyle = '#334155'; // Concrete girder casing
+        ctx.lineWidth = w + 3.2 * Math.max(1, z * 0.4);
+      } else if (edge.isTunnel || (edge.layer || 0) < 0) {
+        ctx.strokeStyle = '#1e293b'; // Underpass trench casing
+        ctx.lineWidth = w + 2.0 * Math.max(1, z * 0.3);
+      } else {
+        ctx.strokeStyle = tierConfig.casingColor || '#07090C'; // Paved shoulder edge / road boundary
+        ctx.lineWidth = w + (roadTier === 'arterial' ? 2.6 : 1.4) * Math.max(1, z * 0.4);
+      }
       ctx.lineCap = 'round';
       drawEdgePath(edge.geometry);
       ctx.stroke();
     }
 
-    // Second Pass: Draw road asphalt fill and realistic IRC Indian road markings
+    // Pass 2: Road Asphalt Fill & IRC Markings
     for (const [, edge] of graph.edges) {
+      const isElevated = (edge.layer || 0) > 0 || edge.isBridge;
+      if (isFlyoverPass && !isElevated) continue;
+      if (!isFlyoverPass && isElevated) continue;
+
       if (edge.from > edge.to && graph.edges.has(`${edge.to}->${edge.from}`)) continue;
       const from = graph.nodes.get(edge.from);
       const to = graph.nodes.get(edge.to);
@@ -225,27 +278,83 @@ export class Renderer {
       const { isTwoWay, oppLanes, fwdLanes, totalLanes, lw, roadTier, divider, tierConfig } = getRoadInfo(edge);
       let baseW = totalLanes * lw;
       if (detail === 'overview') {
-        baseW = roadTier === 'arterial' ? 4.2 / this.camera.zoom : (roadTier === 'main' ? 2.6 / this.camera.zoom : 1.4 / this.camera.zoom);
+        baseW = roadTier === 'arterial' ? 4.2 / z : (roadTier === 'main' ? 2.6 / z : 1.4 / z);
       } else if (detail === 'district') {
-        baseW = Math.max(baseW, (roadTier === 'arterial' ? 3.6 : (roadTier === 'main' ? 2.4 : 1.6)) / this.camera.zoom);
+        baseW = Math.max(baseW, (roadTier === 'arterial' ? 3.6 : (roadTier === 'main' ? 2.4 : 1.6)) / z);
       }
-      const w = baseW * this.camera.zoom;
+      const w = baseW * z;
 
       // Road asphalt surface
-      ctx.strokeStyle = tierConfig.surfaceColor || colors[edge.type] || colors.local;
+      if (isElevated) {
+        ctx.strokeStyle = '#3A4454'; // Distinct elevated flyover deck asphalt
+      } else if (edge.isTunnel || (edge.layer || 0) < 0) {
+        ctx.strokeStyle = '#12151D'; // Recessed subterranean underpass trench asphalt
+      } else {
+        ctx.strokeStyle = tierConfig.surfaceColor || colors[edge.type] || colors.local;
+      }
       ctx.lineWidth = w;
       ctx.lineCap = 'round';
       drawEdgePath(edge.geometry);
       ctx.stroke();
 
+      // Concrete Parapet Crash Barriers on elevated flyovers
+      if (isElevated) {
+        ctx.strokeStyle = '#64748B'; // Concrete crash barrier rail
+        ctx.lineWidth = Math.max(1.2, 0.25 * z);
+        drawOffsetPath(edge.geometry, -baseW * 0.48);
+        ctx.stroke();
+        drawOffsetPath(edge.geometry, baseW * 0.48);
+        ctx.stroke();
+      }
+
+      // Concrete retaining sidewalls and portal arches on underpasses
+      if (!isElevated && (edge.isTunnel || (edge.layer || 0) < 0)) {
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = Math.max(1.0, 0.2 * z);
+        drawOffsetPath(edge.geometry, -baseW * 0.48);
+        ctx.stroke();
+        drawOffsetPath(edge.geometry, baseW * 0.48);
+        ctx.stroke();
+
+        // Draw portal arch across the entrance and exit
+        if (edge.geometry.length >= 2) {
+          const drawPortalArch = (pA, pB) => {
+            const sA = this.worldToScreen(pA.x, pA.y);
+            const sB = this.worldToScreen(pB.x, pB.y);
+            const dx = sB.x - sA.x, dy = sB.y - sA.y;
+            const len = Math.hypot(dx, dy) || 1;
+            const px = -dy / len, py = dx / len;
+            const pw = w * 0.55;
+            
+            // Dark portal mouth line
+            ctx.strokeStyle = '#05070A';
+            ctx.lineWidth = Math.max(2.8, 0.9 * z);
+            ctx.beginPath();
+            ctx.moveTo(sA.x - px * pw, sA.y - py * pw);
+            ctx.lineTo(sA.x + px * pw, sA.y + py * pw);
+            ctx.stroke();
+
+            // Concrete lintel header beam
+            ctx.strokeStyle = '#94A3B8';
+            ctx.lineWidth = Math.max(1.5, 0.35 * z);
+            ctx.beginPath();
+            ctx.moveTo(sA.x - px * (pw * 1.05), sA.y - py * (pw * 1.05));
+            ctx.lineTo(sA.x + px * (pw * 1.05), sA.y + py * (pw * 1.05));
+            ctx.stroke();
+          };
+          drawPortalArch(edge.geometry[0], edge.geometry[1]);
+          drawPortalArch(edge.geometry[edge.geometry.length - 1], edge.geometry[edge.geometry.length - 2]);
+        }
+      }
+
       // Detailed Markings (LOD: zoom > 2.0)
-      if (this.camera.zoom > 2.0) {
+      if (z > 2.0) {
         if (isTwoWay) {
           // 1. Indian Highway Center Median / Dividing Line:
-          // Arterials: Double continuous yellow lines
-          if (divider === 'double_yellow') {
+          // Arterials & Flyovers: Double continuous yellow lines
+          if (divider === 'double_yellow' || isElevated) {
             ctx.strokeStyle = 'rgba(255, 193, 7, 0.95)'; // IRC Amber Yellow
-            ctx.lineWidth = Math.max(1.0, 0.12 * this.camera.zoom);
+            ctx.lineWidth = Math.max(1.0, 0.12 * z);
             const medianGap = 0.08 * lw;
             drawOffsetPath(edge.geometry, -medianGap);
             ctx.stroke();
@@ -254,20 +363,18 @@ export class Renderer {
           } else if (divider === 'dashed_white') {
             // Commercial Main Roads & Collectors: single dashed white centerline
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-            ctx.lineWidth = Math.max(0.8, 0.10 * this.camera.zoom);
-            ctx.setLineDash([6 * this.camera.zoom, 8 * this.camera.zoom]);
+            ctx.lineWidth = Math.max(0.8, 0.10 * z);
+            ctx.setLineDash([6 * z, 8 * z]);
             drawEdgePath(edge.geometry);
             ctx.stroke();
             ctx.setLineDash([]);
           }
-          // Residential Cross Streets & Gullies (divider === 'none'):
-          // NO yellow line, NO thick dividing lines! Clean residential street surface.
 
           // 2. Dashed white lane dividers in Forward Carriageway (left of centerline)
           if (fwdLanes > 1) {
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-            ctx.lineWidth = Math.max(0.6, 0.08 * this.camera.zoom);
-            ctx.setLineDash([5 * this.camera.zoom, 7 * this.camera.zoom]);
+            ctx.lineWidth = Math.max(0.6, 0.08 * z);
+            ctx.setLineDash([5 * z, 7 * z]);
             for (let l = 1; l < fwdLanes; l++) {
               const offset = -l * lw;
               drawOffsetPath(edge.geometry, offset);
@@ -279,8 +386,8 @@ export class Renderer {
           // 3. Dashed white lane dividers in Opposing Carriageway (right of centerline)
           if (oppLanes > 1) {
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-            ctx.lineWidth = Math.max(0.6, 0.08 * this.camera.zoom);
-            ctx.setLineDash([5 * this.camera.zoom, 7 * this.camera.zoom]);
+            ctx.lineWidth = Math.max(0.6, 0.08 * z);
+            ctx.setLineDash([5 * z, 7 * z]);
             for (let l = 1; l < oppLanes; l++) {
               const offset = l * lw;
               drawOffsetPath(edge.geometry, offset);
@@ -292,8 +399,8 @@ export class Renderer {
           // One-way road: dashed white dividers across all lanes
           if (fwdLanes > 1) {
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-            ctx.lineWidth = Math.max(0.6, 0.08 * this.camera.zoom);
-            ctx.setLineDash([5 * this.camera.zoom, 7 * this.camera.zoom]);
+            ctx.lineWidth = Math.max(0.6, 0.08 * z);
+            ctx.setLineDash([5 * z, 7 * z]);
             for (let l = 1; l < fwdLanes; l++) {
               const offset = (l - fwdLanes / 2) * lw;
               drawOffsetPath(edge.geometry, offset);
@@ -303,8 +410,8 @@ export class Renderer {
           }
         }
 
-        // 4. Approach Stop Lines (positioned across the approach carriageway for LHT)
-        if (edge.geometry.length >= 2) {
+        // 4. Approach Stop Lines
+        if (edge.geometry.length >= 2 && !isElevated) {
           const ptEnd = edge.geometry[edge.geometry.length - 1];
           const ptPrev = edge.geometry[edge.geometry.length - 2];
           const sEnd = this.worldToScreen(ptEnd.x, ptEnd.y);
@@ -316,11 +423,11 @@ export class Renderer {
           const perpX = -dirY, perpY = dirX; // points to RIGHT
 
           ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-          ctx.lineWidth = Math.max(2.0, 0.4 * this.camera.zoom);
-          const stopOffset = 15 * this.camera.zoom;
+          ctx.lineWidth = Math.max(2.0, 0.4 * z);
+          const stopOffset = 15 * z;
 
           // Forward approach stop line (on the LEFT of centerline for Left-Hand Traffic)
-          const fwdCarriagewayW = fwdLanes * lw * this.camera.zoom;
+          const fwdCarriagewayW = fwdLanes * lw * z;
           ctx.beginPath();
           ctx.moveTo(sEnd.x - dirX * stopOffset, sEnd.y - dirY * stopOffset);
           ctx.lineTo(sEnd.x - dirX * stopOffset - perpX * fwdCarriagewayW, sEnd.y - dirY * stopOffset - perpY * fwdCarriagewayW);
@@ -337,7 +444,7 @@ export class Renderer {
             const dirXS = dxS / lenS, dirYS = dyS / lenS;
             const perpXS = -dirYS, perpYS = dirXS;
 
-            const oppCarriagewayW = oppLanes * lw * this.camera.zoom;
+            const oppCarriagewayW = oppLanes * lw * z;
             ctx.beginPath();
             ctx.moveTo(sStart.x + dirXS * stopOffset, sStart.y + dirYS * stopOffset);
             ctx.lineTo(sStart.x + dirXS * stopOffset + perpXS * oppCarriagewayW, sStart.y + dirYS * stopOffset + perpYS * oppCarriagewayW);
@@ -346,8 +453,8 @@ export class Renderer {
         }
       }
 
-      // Street Name Typography on Zoom
-      if (this.camera.zoom > 2.0 && edge.name && edge.length > 50) {
+      // Street Name / Flyover Typography on Zoom
+      if (z > 2.0 && edge.name && edge.length > 40) {
         const midIdx = Math.floor(edge.geometry.length / 2);
         const p1 = edge.geometry[Math.max(0, midIdx - 1)];
         const p2 = edge.geometry[midIdx] || p1;
@@ -358,11 +465,22 @@ export class Renderer {
         ctx.translate(sMid.x, sMid.y);
         const normAngle = (angle > Math.PI / 2 || angle < -Math.PI / 2) ? angle + Math.PI : angle;
         ctx.rotate(normAngle);
-        ctx.font = `600 ${Math.min(9, Math.max(6, 2.2 * this.camera.zoom))}px "Inter", sans-serif`;
-        ctx.fillStyle = roadTier === 'arterial' ? 'rgba(255, 255, 255, 0.50)' : 'rgba(255, 255, 255, 0.32)';
+        ctx.font = `600 ${Math.min(9, Math.max(6, 2.2 * z))}px "Inter", sans-serif`;
+        
+        let labelText = edge.name.toUpperCase();
+        if (isElevated) {
+          ctx.fillStyle = '#FBBF24'; // Amber badge for elevated flyovers
+          labelText = `${labelText} [FLYOVER]`;
+        } else if (edge.isTunnel || (edge.layer || 0) < 0) {
+          ctx.fillStyle = '#67E8F9'; // Cyan badge for underpasses
+          labelText = `${labelText} [UNDERPASS]`;
+        } else {
+          ctx.fillStyle = roadTier === 'arterial' ? 'rgba(255, 255, 255, 0.50)' : 'rgba(255, 255, 255, 0.32)';
+        }
+        
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(edge.name.toUpperCase(), 0, -w * 0.5 - 3.5);
+        ctx.fillText(labelText, 0, -w * 0.5 - 4);
         ctx.restore();
       }
 
@@ -377,11 +495,14 @@ export class Renderer {
   }
 
   // ── Layer 3: Intersections + Traffic Lights ──────────
-  drawIntersections(intersections) {
+  drawIntersections(intersections, layerFilter = 'all') {
     const ctx = this.ctx;
     const bounds = this.getViewportBounds(50);
 
     for (const [, int] of intersections) {
+      const intLayer = int.layer || 0;
+      if (layerFilter === 'surface' && intLayer > 0) continue;
+      if (layerFilter === 'flyover' && intLayer <= 0) continue;
       if (!this.isInsideViewport(int.x, int.y, bounds)) continue;
       const s = this.worldToScreen(int.x, int.y);
       const z = this.camera.zoom;
@@ -547,15 +668,29 @@ export class Renderer {
   }
 
   // ── Layer 4: Vehicles ────────────────────────────────
-  drawVehicles(vehicles, isNight) {
+  drawVehicles(vehicles, isNight, layerFilter = 'all') {
     const ctx = this.ctx;
     const bounds = this.getViewportBounds(50);
     const detail = this.camera.getDetail();
+    const isFlyoverPass = (layerFilter === 'flyover');
+    const isSurfacePass = (layerFilter === 'surface');
+
+    // Filter by layer & top-down vertical occlusion:
+    // When a vehicle is driving beneath a flyover deck or through an underpass tunnel,
+    // hide the vehicle momentarily until it emerges back into open view!
+    const shouldDraw = (v) => {
+      if (!v.alive) return false;
+      const vLayer = v.layer || 0;
+      if (isSurfacePass && vLayer > 0) return false;
+      if (isFlyoverPass && vLayer <= 0) return false;
+      if (v.isOccluded) return false;
+      return true;
+    };
 
     // At overview zoom, draw tiny 2.2px dots so vehicles remain visible in map view
     if (detail === 'overview') {
       for (const v of vehicles) {
-        if (!v.alive) continue;
+        if (!shouldDraw(v)) continue;
         if (!this.isInsideViewport(v.pos.x, v.pos.y, bounds)) continue;
         const s = this.worldToScreen(v.pos.x, v.pos.y);
         ctx.fillStyle = v.type === 'emergency' ? '#FF3B5C' : v.color;
@@ -567,7 +702,7 @@ export class Renderer {
     }
 
     for (const v of vehicles) {
-      if (!v.alive) continue;
+      if (!shouldDraw(v)) continue;
       if (!this.isInsideViewport(v.pos.x, v.pos.y, bounds)) continue;
 
       const s = this.worldToScreen(v.pos.x, v.pos.y);
@@ -590,6 +725,11 @@ export class Renderer {
         ctx.save();
         ctx.translate(s.x, s.y);
         ctx.rotate(v.heading);
+        if ((v.layer || 0) > 0) {
+          ctx.shadowColor = 'rgba(0,0,0,0.55)';
+          ctx.shadowBlur = 3 * z;
+          ctx.shadowOffsetY = 2 * z;
+        }
         ctx.fillStyle = v.type === 'emergency' ? '#FF3B5C' : v.color;
         const l = v.length * z * 0.5 * visualScale;
         const w = v.width * z * 0.5 * visualScale;
@@ -603,6 +743,11 @@ export class Renderer {
       ctx.save();
       ctx.translate(s.x, s.y);
       ctx.rotate(v.heading);
+      if ((v.layer || 0) > 0) {
+        ctx.shadowColor = 'rgba(0,0,0,0.55)';
+        ctx.shadowBlur = 4 * z;
+        ctx.shadowOffsetY = 2.5 * z;
+      }
 
       const l = v.length * z * 0.5 * visualScale;
       const w = v.width * z * 0.5 * visualScale;

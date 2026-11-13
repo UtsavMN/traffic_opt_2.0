@@ -171,7 +171,7 @@ export class Engine {
     this._pfWorker.postMessage({ type: 'INIT', graph: serializedGraph });
 
     for (const [id, node] of graph.nodes) {
-      const intersection = new Intersection(id, node.x, node.y, node.zone);
+      const intersection = new Intersection(id, node.x, node.y, node.zone, node.layer || 0);
       // Wire up green phase callback (decoupled from React in Intersection.js)
       intersection.onGreenPhaseEnd = (hadVehicles) => {
         if (typeof window !== 'undefined' && (window.__sancharMetrics || window.__trafficOptMetrics)) {
@@ -679,20 +679,26 @@ export class Engine {
     if (this.buildingsBitmap) {
       this.renderer.drawBuildings(this.buildingsBitmap);
     }
-    // Layer 2: Roads (multi-lane Indian roadways with realistic shoulders & IRC markings)
-    this.renderer.drawRoads(this.graph);
+    // Layer 2: Surface Roads & Underpasses (layer <= 0)
+    this.renderer.drawRoads(this.graph, 'surface');
     // Layer 3: Heatmap
     this.renderer.drawHeatmap(this.intersections);
     // Layer 3.2: Sensor Cones
     this.renderer.drawSensorCones(this.intersections);
     // Layer 3.5: Ambulance Routes
     this.renderer.drawAmbulanceRoutes(this.vehicles, this.graph);
-    // Layer 4: Vehicles
-    this.renderer.drawVehicles(this.vehicles, this.timeOfDay.isNight);
+    // Layer 4: Surface Vehicles (layer <= 0; hidden when passing under flyovers or through underpass tunnels)
+    this.renderer.drawVehicles(this.vehicles, this.timeOfDay.isNight, 'surface');
     // Layer 5: Cyclists
     this.renderer.drawCyclists(this.cyclists);
-    // Layer 6: Intersections + Signals + Traffic Police Kiosk
-    this.renderer.drawIntersections(this.intersections);
+    // Layer 5.5: Surface Intersections & Traffic Signals (layer <= 0)
+    this.renderer.drawIntersections(this.intersections, 'surface');
+    // Layer 6: Elevated Flyovers & Bridges (layer > 0) with realistic 3D drop shadow, deck asphalt & parapets
+    this.renderer.drawRoads(this.graph, 'flyover');
+    // Layer 7: Elevated Vehicles (layer > 0) traveling on top of the flyovers
+    this.renderer.drawVehicles(this.vehicles, this.timeOfDay.isNight, 'flyover');
+    // Layer 7.5: Elevated Intersections (layer > 0)
+    this.renderer.drawIntersections(this.intersections, 'flyover');
     // Layer 8: Accidents
     this.accidents.render(this.renderer.ctx);
     // Layer 9: Weather particles

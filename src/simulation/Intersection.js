@@ -4,11 +4,12 @@ import { TrafficLight } from './TrafficLight.js';
  * Intersection — A node in the city graph with traffic signal control
  */
 export class Intersection {
-  constructor(id, x, y, zone = 'residential') {
+  constructor(id, x, y, zone = 'residential', layer = 0) {
     this.id = id;
     this.x = x;
     this.y = y;
     this.zone = zone;
+    this.layer = layer || 0;
     this.trafficLight = new TrafficLight();
 
     // Queue counts per direction

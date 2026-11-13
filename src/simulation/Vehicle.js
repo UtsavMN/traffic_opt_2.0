@@ -147,11 +147,12 @@ export class Vehicle {
     const oppEdge = this.graph ? this.graph.edges.get(`${edge.to}->${edge.from}`) : null;
     const isTwoWay = !!oppEdge;
     const numLanes = edge.lanes || 1;
-    const lw = LANE_WIDTH_PX();
+    // Use edge-specific authentic Indian lane width (e.g. 2.6m for residential cross, 3.5m for arterial)
+    const lw = (edge.laneWidthM || 2.85) * CANVAS_SCALE;
 
     let baseOffset = 0;
     if (isTwoWay) {
-      // Innermost fast lane (numLanes - 1) is adjacent to yellow median line: -0.5 * lw
+      // Innermost fast lane (numLanes - 1) is adjacent to median line: -0.5 * lw
       // Outermost curb lane (0) is adjacent to left road shoulder: -(numLanes - 0.5) * lw
       baseOffset = -((numLanes - 1 - this.laneIndex) + 0.5) * lw;
     } else {
@@ -232,10 +233,15 @@ export class Vehicle {
     const to = this.graph.nodes.get(edge.to);
 
     // 1. Spatial Speed Dynamics based on vehicle type and road hierarchy
-    // Multi-lane roads (2 or 3 lanes) allow higher cruising speeds (+12%) than narrow 1-lane roads
-    const roadHierarchyMult = edge.lanes >= 3 ? 1.15 : (edge.lanes === 2 ? 1.08 : 0.95);
-    const freeFlowTarget = this.vFreeFlow * roadHierarchyMult * weatherMult;
-    const approachTarget = this.vApproach * weatherMult;
+    // Arterial flyovers/highways allow full cruising speed, while residential cross roads require calmer urban speeds
+    let tierSpeedCap = Infinity;
+    if (edge.roadTier === 'cross') tierSpeedCap = ((26 * 1000) / 3600) * CANVAS_SCALE;
+    else if (edge.roadTier === 'gully') tierSpeedCap = ((18 * 1000) / 3600) * CANVAS_SCALE;
+    else if (edge.roadTier === 'collector') tierSpeedCap = ((34 * 1000) / 3600) * CANVAS_SCALE;
+
+    const roadHierarchyMult = edge.roadTier === 'arterial' ? 1.15 : (edge.roadTier === 'main' ? 1.05 : 0.90);
+    const freeFlowTarget = Math.min(this.vFreeFlow * roadHierarchyMult * weatherMult, tierSpeedCap);
+    const approachTarget = Math.min(this.vApproach * weatherMult, tierSpeedCap);
 
     // --- 1. Find Lead Vehicle (Car Following) ---
     const queryRadius = Math.max(45, (this.speed * 2.0) + this.length);
@@ -275,7 +281,7 @@ export class Vehicle {
         const lightColor = dir ? (dir === 'N' || dir === 'S' ? intObj.trafficLight.getColorNS() : intObj.trafficLight.getColorEW()) : 'GREEN';
         
         // Stop line is located before the junction center
-        stopLineDist = Math.max(14, (intObj.maxLanes || 2) * LANE_WIDTH_PX() * 0.65);
+        stopLineDist = Math.max(14, (intObj.maxLanes || 2) * (edge.laneWidthM || 2.85) * CANVAS_SCALE * 0.65);
         distToIntersection = (1 - this.segmentProgress) * edge.length;
         const distToStopLine = distToIntersection - stopLineDist;
 

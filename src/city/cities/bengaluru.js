@@ -4,24 +4,44 @@ import { setCanvasScale } from '../../constants.js';
 
 const AREAS = {
   central: {
-    minLng: 77.6030, maxLng: 77.6250,
-    minLat: 12.9950, maxLat: 13.0120
-  },
-  north: {
+    name: 'Greater Bengaluru Central',
+    description: 'Metropolitan hub spanning Frazer Town, Cantonment, and Hennur corridors',
     minLng: 77.5932, maxLng: 77.6351,
-    minLat: 13.0038, maxLat: 13.0204
+    minLat: 12.9872, maxLat: 13.0204,
+    camera: { x: 2000, y: 2000, zoom: 0.8 },
+    spawnRate: 1.25,
   },
-  south: {
-    minLng: 77.5932, maxLng: 77.6351,
-    minLat: 12.9872, maxLat: 13.0038
+  frazer_town: {
+    name: 'Frazer Town & Coles Road Hub',
+    description: 'High-density commercial & market grid with Coles Rd, MM Rd, Mosque Rd & residential crosses',
+    minLng: 77.6060, maxLng: 77.6250,
+    minLat: 12.9930, maxLat: 13.0045,
+    camera: { x: 2000, y: 2000, zoom: 1.2 },
+    spawnRate: 1.35,
   },
-  east: {
-    minLng: 77.6141, maxLng: 77.6351,
-    minLat: 12.9872, maxLat: 13.0204
+  lingarajapuram: {
+    name: 'Lingarajapuram - Hennur Flyover Corridor',
+    description: 'Major arterial bottleneck: Lingarajapuram Flyover railway crossing, Hennur Main Rd & Banaswadi Rd',
+    minLng: 77.6160, maxLng: 77.6345,
+    minLat: 13.0020, maxLat: 13.0180,
+    camera: { x: 2000, y: 2000, zoom: 1.15 },
+    spawnRate: 1.4,
   },
-  west: {
-    minLng: 77.5932, maxLng: 77.6141,
-    minLat: 12.9872, maxLat: 13.0204
+  cantonment: {
+    name: 'Cantonment & Shivaji Nagar Gateway',
+    description: 'Multi-modal transit gateway: Millers Rd, Cantonment Station & heavy BMTC bus transit',
+    minLng: 77.5932, maxLng: 77.6110,
+    minLat: 12.9872, maxLat: 13.0015,
+    camera: { x: 2000, y: 2000, zoom: 1.2 },
+    spawnRate: 1.2,
+  },
+  benson_town: {
+    name: 'Benson Town & Richards Town Layouts',
+    description: 'Residential layout grid: Nandi Durga Rd, Benson Cross, Davis Rd & quiet gully networks',
+    minLng: 77.5980, maxLng: 77.6210,
+    minLat: 13.0010, maxLat: 13.0125,
+    camera: { x: 2000, y: 2000, zoom: 1.2 },
+    spawnRate: 1.0,
   }
 };
 
@@ -85,15 +105,18 @@ export async function loadBengaluruArea(areaName = 'central') {
     }
   });
 
+  const areaConfig = AREAS[areaName] || AREAS.central;
+
   return {
     id: `bengaluru_${areaName}`,
-    name: `Bengaluru ${areaName.charAt(0).toUpperCase() + areaName.slice(1)}`,
+    name: areaConfig.name,
+    description: areaConfig.description,
     graph,
     buildingsBitmap,
     hospitals,
     config: {
-      spawnRate: 1.2,
-      cameraParams: { x: 2000, y: 2000, zoom: 0.8 },
+      spawnRate: areaConfig.spawnRate || 1.2,
+      cameraParams: areaConfig.camera || { x: 2000, y: 2000, zoom: 0.8 },
     }
   };
 }

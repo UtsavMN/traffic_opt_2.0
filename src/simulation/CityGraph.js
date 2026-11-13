@@ -25,7 +25,7 @@ export class CityGraph {
     if (!this.adjacency.has(id)) this.adjacency.set(id, new Set());
   }
 
-  addEdge(fromId, toId, lanes = 2, type = 'local', speedLimit = 40, geometry = null) {
+  addEdge(fromId, toId, lanes = 2, type = 'local', speedLimit = 40, geometry = null, roadTier = 'cross', laneWidthM = 2.85, name = '', divider = 'none') {
     const from = this.nodes.get(fromId);
     const to = this.nodes.get(toId);
     if (!from || !to) return;
@@ -53,6 +53,10 @@ export class CityGraph {
       id: edgeId,
       from: fromId, to: toId,
       lanes, type, speedLimit, length,
+      roadTier: roadTier || 'cross',
+      laneWidthM: laneWidthM || 2.85,
+      name: name || '',
+      divider: divider || 'none',
       blocked: 0,
       direction: Math.atan2(to.y - from.y, to.x - from.x),
       geometry: actualGeometry

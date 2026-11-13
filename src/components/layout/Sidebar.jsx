@@ -4,6 +4,7 @@ import { useUIStore } from '../../store/uiStore.js';
 import { SCENARIOS } from '../../city/CityLoader.js';
 import TrafficPolicePanel from './TrafficPolicePanel.jsx';
 import MetricsDashboard from './MetricsDashboard.jsx';
+import BangaloreAnalysisPanel from '../panels/BangaloreAnalysisPanel.jsx';
 
 const WEATHER_OPTIONS = [
   { id: 'clear', icon: '☀️', label: 'Clear' },
@@ -37,6 +38,7 @@ export default function Sidebar({
 
   const [spawnVal, setSpawnVal] = useState(1.0);
   const [selectedScenario, setSelectedScenario] = useState('bengaluru_central');
+  const [activeView, setActiveView] = useState('metrics'); // 'metrics' | 'bangalore'
 
   const currentHour = typeof timeOfDay === 'number' ? timeOfDay : 8;
   const hours = Math.floor(currentHour);
@@ -46,7 +48,52 @@ export default function Sidebar({
   return (
     <div className="sidebar">
       <TrafficPolicePanel />
-      <MetricsDashboard />
+
+      {/* View Switcher: Metrics Dashboard vs Bengaluru Mobility Analysis */}
+      <div style={{ display: 'flex', gap: 4, margin: '4px 0 6px 0' }}>
+        <button
+          onClick={() => setActiveView('metrics')}
+          style={{
+            flex: 1,
+            padding: '5px 4px',
+            fontSize: 8.5,
+            fontFamily: 'var(--font-display)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+            borderRadius: 4,
+            cursor: 'pointer',
+            border: activeView === 'metrics' ? '1px solid var(--signal-purple)' : '1px solid var(--border-subtle)',
+            background: activeView === 'metrics' ? 'rgba(155, 111, 255, 0.15)' : 'rgba(255, 255, 255, 0.02)',
+            color: activeView === 'metrics' ? 'var(--signal-purple)' : 'var(--text-tertiary)',
+            fontWeight: 600,
+            transition: 'all 0.2s ease',
+          }}
+        >
+          📊 Live Metrics
+        </button>
+        <button
+          onClick={() => setActiveView('bangalore')}
+          style={{
+            flex: 1,
+            padding: '5px 4px',
+            fontSize: 8.5,
+            fontFamily: 'var(--font-display)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+            borderRadius: 4,
+            cursor: 'pointer',
+            border: activeView === 'bangalore' ? '1px solid var(--signal-blue)' : '1px solid var(--border-subtle)',
+            background: activeView === 'bangalore' ? 'rgba(61, 158, 255, 0.15)' : 'rgba(255, 255, 255, 0.02)',
+            color: activeView === 'bangalore' ? '#66b2ff' : 'var(--text-tertiary)',
+            fontWeight: 600,
+            transition: 'all 0.2s ease',
+          }}
+        >
+          🏙️ Bengaluru Twin
+        </button>
+      </div>
+
+      {activeView === 'metrics' ? <MetricsDashboard /> : <BangaloreAnalysisPanel />}
 
       {/* Section 2: Controls */}
       <div className="panel-section">

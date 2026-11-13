@@ -1,4 +1,5 @@
 import { CityGraph } from '../simulation/CityGraph.js';
+import { ROAD_TIER_CONFIG } from '../constants.js';
 
 /**
  * Parses GeoJSON road network data into a CityGraph
@@ -70,38 +71,43 @@ export function parseOSMRoads(geojson, bounds = null) {
     }
   }
 
-  // 3. Create edges
+  // 3. Create edges with authentic Indian / Bengaluru road hierarchy
   roads.forEach(road => {
     const props = road.properties || {};
     const coords = road.geometry.coordinates;
+    const name = props.name || '';
+    const nameLower = name.toLowerCase();
     
     let currentSegmentStartKey = null;
     let currentSegmentStartId = null;
 
-    // Indian Road Hierarchy Standards (IRC:73 / IRC:86):
-    // Multi-lane highways & arterials with designated per-direction lanes
-    const DEFAULT_LANES = {
-      motorway: 4,      // 4 lanes each direction (8-lane expressways)
-      trunk: 3,         // 3 lanes each direction (6-lane national highways e.g. NH-44)
-      primary: 3,       // 3 lanes each direction (6-lane major arterials e.g. Outer Ring Road)
-      secondary: 2,     // 2 lanes each direction (4-lane city avenues e.g. 100ft road)
-      tertiary: 2,      // 2 lanes each direction (4-lane collector streets)
-      residential: 1,   // 1 lane each direction (2-lane urban street)
-      unclassified: 1,  // 1 lane each direction
-      service: 1
-    };
-    const DEFAULT_SPEED_KMH = { motorway:100, trunk:80, primary:60, secondary:50, tertiary:40, residential:30, unclassified:30, service:15 };
-    
     const hw = props.highway || 'unclassified';
-    const speedLimit = parseInt(props.maxspeed) || DEFAULT_SPEED_KMH[hw] || 30;
-    const oneway = props.oneway === 'yes' || props.oneway === '1' || hw === 'motorway' || props.junction === 'roundabout';
-    const type = hw;
+
+    // Differentiate road hierarchy using OSM tag + Bengaluru road nomenclature cues
+    let resolvedHw = hw;
+    if (nameLower.includes('flyover') || nameLower.includes('ring road') || nameLower.includes('expressway') || nameLower.includes('bypass')) {
+      resolvedHw = 'primary';
+    } else if (nameLower.includes('main road') || nameLower.includes('avenue') || nameLower.includes('coles') || nameLower.includes('mm road') || nameLower.includes('mosque') || nameLower.includes('millers') || nameLower.includes('davis')) {
+      if (resolvedHw === 'residential' || resolvedHw === 'unclassified') {
+        resolvedHw = 'secondary';
+      }
+    } else if (nameLower.includes('cross') || nameLower.includes('cross road') || nameLower.includes('gully') || nameLower.includes('lane') || nameLower.includes('layout')) {
+      resolvedHw = 'residential';
+    }
+
+    const tierConfig = ROAD_TIER_CONFIG[resolvedHw] || ROAD_TIER_CONFIG.default;
+    const roadTier = tierConfig.tier;
+    const laneWidthM = tierConfig.laneWidthM;
+    const divider = tierConfig.divider;
+    const speedLimit = parseInt(props.maxspeed) || tierConfig.speedLimitKmh || 30;
+    const oneway = props.oneway === 'yes' || props.oneway === '1' || resolvedHw === 'motorway' || props.junction === 'roundabout';
+    const type = resolvedHw;
 
     let forwardLanes = 1;
     let backwardLanes = 1;
 
     if (oneway) {
-      forwardLanes = parseInt(props.lanes) || DEFAULT_LANES[hw] || 2;
+      forwardLanes = parseInt(props.lanes) || tierConfig.defaultLanes || 2;
       backwardLanes = 0;
     } else {
       if (props['lanes:forward']) {
@@ -121,7 +127,7 @@ export function parseOSMRoads(geojson, bounds = null) {
             backwardLanes = 1;
           }
         } else {
-          forwardLanes = DEFAULT_LANES[hw] || 1;
+          forwardLanes = tierConfig.defaultLanes || 1;
           backwardLanes = forwardLanes;
         }
       }
@@ -141,11 +147,11 @@ export function parseOSMRoads(geojson, bounds = null) {
       if (nodes.has(key)) {
         const nodeId = nodes.get(key);
         if (currentSegmentStartId && currentSegmentStartId !== nodeId) {
-          // Add edge with waypoints
-          graph.addEdge(currentSegmentStartId, nodeId, forwardLanes, type, speedLimit, currentSegmentGeom);
+          // Add edge with waypoints and road hierarchy metadata
+          graph.addEdge(currentSegmentStartId, nodeId, forwardLanes, type, speedLimit, currentSegmentGeom, roadTier, laneWidthM, name, divider);
           if (!oneway && backwardLanes > 0) {
             const revGeom = [...currentSegmentGeom].reverse();
-            graph.addEdge(nodeId, currentSegmentStartId, backwardLanes, type, speedLimit, revGeom);
+            graph.addEdge(nodeId, currentSegmentStartId, backwardLanes, type, speedLimit, revGeom, roadTier, laneWidthM, name, divider);
           }
         }
         currentSegmentStartId = nodeId;
@@ -242,7 +248,7 @@ export function clusterNearbyNodes(graph, CANVAS_SCALE) {
     }
   }
 
-  // 4. Re-add remapped edges and filter out self-loops
+  // 4. Re-add remapped edges and filter out self-loops with full metadata preserved
   for (const edge of originalEdges) {
     const newFrom = merged.get(edge.from) || edge.from;
     const newTo = merged.get(edge.to) || edge.to;
@@ -257,7 +263,7 @@ export function clusterNearbyNodes(graph, CANVAS_SCALE) {
         if (startNode) remappedGeom[0] = { x: startNode.x, y: startNode.y };
         if (endNode) remappedGeom[remappedGeom.length - 1] = { x: endNode.x, y: endNode.y };
       }
-      graph.addEdge(newFrom, newTo, edge.lanes, edge.type, edge.speedLimit, remappedGeom);
+      graph.addEdge(newFrom, newTo, edge.lanes, edge.type, edge.speedLimit, remappedGeom, edge.roadTier, edge.laneWidthM, edge.name, edge.divider);
     }
   }
 

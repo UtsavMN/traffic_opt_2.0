@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useSimStore } from '../../store/simStore.js';
 import { formatTime } from '../../utils/statistics.js';
+import { SCENARIOS } from '../../city/CityLoader.js';
 
 const WEATHER_ICONS = {
   clear: '☀️', light_rain: '🌦️', heavy_rain: '🌧️',
@@ -48,8 +49,8 @@ export default function TopBar({ setTimeOfDay, setTimeLocked, togglePause, resta
 
       <div className="topbar__info">
         <div className="topbar__info-item">
-          <span className="label">City</span>
-          <span>{scenario === 'bengaluru_central' ? 'Bengaluru Central' : scenario.replace('bengaluru_', 'Bengaluru ').replace(/^\w/, c => c.toUpperCase())}</span>
+          <span className="label">Sector</span>
+          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{SCENARIOS[scenario]?.name || 'Bengaluru Central'}</span>
         </div>
 
         <div className="topbar__divider" />

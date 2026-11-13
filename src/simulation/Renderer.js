@@ -1,6 +1,6 @@
 import { SIGNAL_COLORS } from './TrafficLight.js';
 import { Camera } from './Camera.js';
-import { LANE_WIDTH_PX, REAL_LANE_WIDTH_M } from '../constants.js';
+import { LANE_WIDTH_PX, REAL_LANE_WIDTH_M, ROAD_TIER_CONFIG, getLaneWidthM } from '../constants.js';
 
 /**
  * Renderer — All canvas draw calls, layered back-to-front
@@ -169,14 +169,19 @@ export class Renderer {
       }
     };
 
-    // Helper to extract full two-way physical road metrics
+    // Helper to extract full two-way physical road metrics with authentic Bengaluru hierarchy
     const getRoadInfo = (edge) => {
       const oppEdge = graph.edges.get(`${edge.to}->${edge.from}`);
       const isTwoWay = !!oppEdge;
       const fwdLanes = edge.lanes || 1;
       const oppLanes = isTwoWay ? (oppEdge.lanes || 1) : 0;
       const totalLanes = fwdLanes + oppLanes;
-      return { isTwoWay, oppEdge, fwdLanes, oppLanes, totalLanes };
+      const laneWidthM = edge.laneWidthM || getLaneWidthM(edge.type);
+      const lw = laneWidthM * CANVAS_SCALE;
+      const roadTier = edge.roadTier || (edge.type === 'primary' || edge.type === 'trunk' || edge.type === 'motorway' ? 'arterial' : (edge.type === 'secondary' ? 'main' : (edge.type === 'tertiary' ? 'collector' : 'cross')));
+      const divider = edge.divider || (roadTier === 'arterial' ? 'double_yellow' : (roadTier === 'main' ? 'dashed_white' : 'none'));
+      const tierConfig = ROAD_TIER_CONFIG[edge.type] || ROAD_TIER_CONFIG.default;
+      return { isTwoWay, oppEdge, fwdLanes, oppLanes, totalLanes, laneWidthM, lw, roadTier, divider, tierConfig };
     };
 
     // First Pass: Draw road casing / dark asphalt shoulder (seamless junction merging)
@@ -186,23 +191,21 @@ export class Renderer {
       const to = graph.nodes.get(edge.to);
       if (!from || !to) continue;
 
-      if (detail === 'overview' && edge.type === 'local') continue;
-
       if (!this.isInsideViewport(from.x, from.y, bounds) && !this.isInsideViewport(to.x, to.y, bounds)) {
         continue;
       }
 
-      const { totalLanes } = getRoadInfo(edge);
-      let baseW = totalLanes * LANE_WIDTH_PX();
+      const { totalLanes, lw, roadTier, tierConfig } = getRoadInfo(edge);
+      let baseW = totalLanes * lw;
       if (detail === 'overview') {
-        baseW = totalLanes >= 4 ? 4 / this.camera.zoom : 2 / this.camera.zoom;
+        baseW = roadTier === 'arterial' ? 4.2 / this.camera.zoom : (roadTier === 'main' ? 2.6 / this.camera.zoom : 1.4 / this.camera.zoom);
       } else if (detail === 'district') {
-        baseW = Math.max(baseW, (totalLanes >= 4 ? 3.5 : 2.0) / this.camera.zoom);
+        baseW = Math.max(baseW, (roadTier === 'arterial' ? 3.6 : (roadTier === 'main' ? 2.4 : 1.6)) / this.camera.zoom);
       }
       const w = baseW * this.camera.zoom;
 
-      ctx.strokeStyle = '#0B0D12'; // Paved shoulder edge / road boundary
-      ctx.lineWidth = w + 2 * Math.max(1, this.camera.zoom * 0.4);
+      ctx.strokeStyle = tierConfig.casingColor || '#07090C'; // Paved shoulder edge / road boundary
+      ctx.lineWidth = w + (roadTier === 'arterial' ? 2.6 : 1.4) * Math.max(1, this.camera.zoom * 0.4);
       ctx.lineCap = 'round';
       drawEdgePath(edge.geometry);
       ctx.stroke();
@@ -215,23 +218,21 @@ export class Renderer {
       const to = graph.nodes.get(edge.to);
       if (!from || !to) continue;
 
-      if (detail === 'overview' && edge.type === 'local') continue;
-
       if (!this.isInsideViewport(from.x, from.y, bounds) && !this.isInsideViewport(to.x, to.y, bounds)) {
         continue;
       }
 
-      const { isTwoWay, oppLanes, fwdLanes, totalLanes } = getRoadInfo(edge);
-      let baseW = totalLanes * LANE_WIDTH_PX();
+      const { isTwoWay, oppLanes, fwdLanes, totalLanes, lw, roadTier, divider, tierConfig } = getRoadInfo(edge);
+      let baseW = totalLanes * lw;
       if (detail === 'overview') {
-        baseW = totalLanes >= 4 ? 4 / this.camera.zoom : 2 / this.camera.zoom;
+        baseW = roadTier === 'arterial' ? 4.2 / this.camera.zoom : (roadTier === 'main' ? 2.6 / this.camera.zoom : 1.4 / this.camera.zoom);
       } else if (detail === 'district') {
-        baseW = Math.max(baseW, (totalLanes >= 4 ? 3.5 : 2.0) / this.camera.zoom);
+        baseW = Math.max(baseW, (roadTier === 'arterial' ? 3.6 : (roadTier === 'main' ? 2.4 : 1.6)) / this.camera.zoom);
       }
       const w = baseW * this.camera.zoom;
 
       // Road asphalt surface
-      ctx.strokeStyle = colors[edge.type] || colors.local;
+      ctx.strokeStyle = tierConfig.surfaceColor || colors[edge.type] || colors.local;
       ctx.lineWidth = w;
       ctx.lineCap = 'round';
       drawEdgePath(edge.geometry);
@@ -239,26 +240,28 @@ export class Renderer {
 
       // Detailed Markings (LOD: zoom > 2.0)
       if (this.camera.zoom > 2.0) {
-        const lw = LANE_WIDTH_PX();
-
         if (isTwoWay) {
-          // 1. Indian Highway Center Median / Dividing Line (IRC:35 standard)
-          // For multi-lane Indian roads (>= 4 total lanes): double yellow continuous lines
-          // For 2-lane roads: single solid yellow centerline
-          if (totalLanes >= 4) {
-            ctx.strokeStyle = 'rgba(255, 193, 7, 0.9)'; // IRC Amber Yellow
+          // 1. Indian Highway Center Median / Dividing Line:
+          // Arterials: Double continuous yellow lines
+          if (divider === 'double_yellow') {
+            ctx.strokeStyle = 'rgba(255, 193, 7, 0.95)'; // IRC Amber Yellow
             ctx.lineWidth = Math.max(1.0, 0.12 * this.camera.zoom);
             const medianGap = 0.08 * lw;
             drawOffsetPath(edge.geometry, -medianGap);
             ctx.stroke();
             drawOffsetPath(edge.geometry, medianGap);
             ctx.stroke();
-          } else {
-            ctx.strokeStyle = 'rgba(255, 193, 7, 0.9)';
-            ctx.lineWidth = Math.max(1.0, 0.16 * this.camera.zoom);
+          } else if (divider === 'dashed_white') {
+            // Commercial Main Roads & Collectors: single dashed white centerline
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+            ctx.lineWidth = Math.max(0.8, 0.10 * this.camera.zoom);
+            ctx.setLineDash([6 * this.camera.zoom, 8 * this.camera.zoom]);
             drawEdgePath(edge.geometry);
             ctx.stroke();
+            ctx.setLineDash([]);
           }
+          // Residential Cross Streets & Gullies (divider === 'none'):
+          // NO yellow line, NO thick dividing lines! Clean residential street surface.
 
           // 2. Dashed white lane dividers in Forward Carriageway (left of centerline)
           if (fwdLanes > 1) {
@@ -341,6 +344,26 @@ export class Renderer {
             ctx.stroke();
           }
         }
+      }
+
+      // Street Name Typography on Zoom
+      if (this.camera.zoom > 2.0 && edge.name && edge.length > 50) {
+        const midIdx = Math.floor(edge.geometry.length / 2);
+        const p1 = edge.geometry[Math.max(0, midIdx - 1)];
+        const p2 = edge.geometry[midIdx] || p1;
+        const sMid = this.worldToScreen((p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
+        const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+        
+        ctx.save();
+        ctx.translate(sMid.x, sMid.y);
+        const normAngle = (angle > Math.PI / 2 || angle < -Math.PI / 2) ? angle + Math.PI : angle;
+        ctx.rotate(normAngle);
+        ctx.font = `600 ${Math.min(9, Math.max(6, 2.2 * this.camera.zoom))}px "Inter", sans-serif`;
+        ctx.fillStyle = roadTier === 'arterial' ? 'rgba(255, 255, 255, 0.50)' : 'rgba(255, 255, 255, 0.32)';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(edge.name.toUpperCase(), 0, -w * 0.5 - 3.5);
+        ctx.restore();
       }
 
       // Blocked indicator

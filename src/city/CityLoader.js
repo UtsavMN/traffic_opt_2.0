@@ -2,34 +2,34 @@ import { loadBengaluruArea } from './cities/bengaluru.js';
 
 export const SCENARIOS = {
   bengaluru_central: {
-    name: 'Bengaluru Central',
-    description: 'Central Bangalore Hub',
+    name: 'Greater Bengaluru Central Hub',
+    description: 'Metropolitan hub spanning Frazer Town, Cantonment & Hennur (1,200+ junctions)',
     generator: async () => await loadBengaluruArea('central'),
-    config: { spawnRate: 1.2 }
+    config: { spawnRate: 1.25, timeOfDay: 8.5 }
   },
-  bengaluru_north: {
-    name: 'Bengaluru North',
-    description: 'Northern Bangalore District',
-    generator: async () => await loadBengaluruArea('north'),
-    config: { spawnRate: 1.0 }
+  bengaluru_frazer_town: {
+    name: 'Frazer Town & Coles Road Hub',
+    description: 'Commercial & dining grid: Coles Rd, MM Rd, Mosque Rd & dense residential crosses',
+    generator: async () => await loadBengaluruArea('frazer_town'),
+    config: { spawnRate: 1.35, timeOfDay: 19.0 }
   },
-  bengaluru_south: {
-    name: 'Bengaluru South',
-    description: 'Southern Bangalore District',
-    generator: async () => await loadBengaluruArea('south'),
-    config: { spawnRate: 1.1 }
+  bengaluru_lingarajapuram: {
+    name: 'Lingarajapuram - Hennur Flyover Corridor',
+    description: 'Notorious arterial bottleneck: Flyover railway crossing, Hennur Main Rd & Banaswadi Rd',
+    generator: async () => await loadBengaluruArea('lingarajapuram'),
+    config: { spawnRate: 1.4, timeOfDay: 8.5 }
   },
-  bengaluru_east: {
-    name: 'Bengaluru East',
-    description: 'Eastern Bangalore District',
-    generator: async () => await loadBengaluruArea('east'),
-    config: { spawnRate: 1.0 }
+  bengaluru_cantonment: {
+    name: 'Cantonment & Shivaji Nagar Gateway',
+    description: 'Transit hub: Millers Rd, Cantonment Station & heavy BMTC bus interchange',
+    generator: async () => await loadBengaluruArea('cantonment'),
+    config: { spawnRate: 1.2, timeOfDay: 9.0 }
   },
-  bengaluru_west: {
-    name: 'Bengaluru West',
-    description: 'Western Bangalore District',
-    generator: async () => await loadBengaluruArea('west'),
-    config: { spawnRate: 1.0 }
+  bengaluru_benson_town: {
+    name: 'Benson Town & Richards Town Layouts',
+    description: 'Residential layout grid: Nandi Durga Rd, Benson Cross, Davis Rd & gully filtering',
+    generator: async () => await loadBengaluruArea('benson_town'),
+    config: { spawnRate: 1.0, timeOfDay: 14.0 }
   }
 };
 
@@ -48,6 +48,12 @@ export async function loadScenario(scenarioId, engine) {
   
   if (result.hospitals) engine.hospitals = result.hospitals;
   else engine.hospitals = [];
+
+  // Center camera on sector if camera params provided
+  if (result.config && result.config.cameraParams && engine.camera) {
+    const cp = result.config.cameraParams;
+    engine.camera.centerOn(cp.x, cp.y, cp.zoom);
+  }
 
   // Apply config
   const cfg = scenario.config;

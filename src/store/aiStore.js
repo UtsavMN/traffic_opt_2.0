@@ -28,4 +28,10 @@ export const useAIStore = create((set) => ({
   }),
 
   setMode: (mode) => set({ mode }),
+
+  reset: () => set({
+    rewardHistory: [],
+    decisions: [],
+    currentReward: 0,
+  }),
 }));

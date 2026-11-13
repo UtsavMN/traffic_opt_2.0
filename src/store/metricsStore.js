@@ -117,6 +117,26 @@ export const useMetricsStore = create((set, get) => ({
     totalGreenPhases: state.totalGreenPhases + 1,
     usedGreenPhases: state.usedGreenPhases + (hadVehicles ? 1 : 0),
   })),
+
+  reset: () => set({
+    history: [],
+    avgWaitTime: 0,
+    throughput: 0,
+    greenEfficiency: 85,
+    imbalance: 0,
+    aiDecisionsPerMin: 0,
+    optimizationScore: 88,
+    vehicleCount: 0,
+    timeSaved: 0,
+    congestionLevel: 0,
+    avgSpeedKmh: 40,
+    economicLoss: 0,
+    moneySaved: 0,
+    completedTrips: [],
+    aiDecisions: [],
+    totalGreenPhases: 0,
+    usedGreenPhases: 0,
+  }),
 }));
 
 // ── Global Bridges ─────────────────────────────────────

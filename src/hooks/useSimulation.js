@@ -107,6 +107,25 @@ export function useSimulation() {
     }
   }, []);
 
+  const restartSim = useCallback(() => {
+    if (engineRef.current) {
+      engineRef.current.restart();
+      useSimStore.getState().updateMetrics({
+        vehicleCount: 0,
+        waitingCount: 0,
+        avgWaitTime: 0,
+        throughput: 0,
+        totalSpawned: 0,
+        totalDespawned: 0,
+        congestionLevel: 0,
+        avgSpeedKmh: 40,
+        avgImbalance: 0,
+      });
+      useMetricsStore.getState().reset();
+      useAIStore.getState().reset();
+    }
+  }, []);
+
   const setSpawnRate = useCallback((rate) => {
     if (engineRef.current) {
       engineRef.current.setSpawnRate(rate);
@@ -186,6 +205,7 @@ export function useSimulation() {
     engineRef,
     setSimSpeed,
     togglePause,
+    restartSim,
     setSpawnRate,
     setWeather,
     setTimeOfDay,

@@ -14,12 +14,13 @@ const TIME_PRESETS = [
   { label: 'Night', hour: 22.0, icon: '🌙' },
 ];
 
-export default function TopBar({ setTimeOfDay, setTimeLocked }) {
+export default function TopBar({ setTimeOfDay, setTimeLocked, togglePause, restartSim }) {
   const timeOfDay = useSimStore(s => s.timeOfDay);
   const timeLocked = useSimStore(s => s.timeLocked);
   const weather = useSimStore(s => s.weather);
   const scenario = useSimStore(s => s.scenario);
   const simSpeed = useSimStore(s => s.simSpeed);
+  const running = useSimStore(s => s.running);
 
   const [showTimeModal, setShowTimeModal] = useState(false);
   const modalRef = useRef(null);
@@ -176,9 +177,58 @@ export default function TopBar({ setTimeOfDay, setTimeLocked }) {
           <span>{simSpeed}×</span>
         </div>
         <div className="topbar__divider" />
+
+        {/* Primary Simulation Controls: Pause & Restart */}
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <button
+            onClick={togglePause}
+            title={running ? 'Pause Simulation' : 'Resume Simulation'}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '3px 9px',
+              borderRadius: 4,
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: 'pointer',
+              border: running ? '1px solid rgba(255, 180, 0, 0.45)' : '1px solid rgba(0, 232, 122, 0.55)',
+              background: running ? 'rgba(255, 180, 0, 0.14)' : 'rgba(0, 232, 122, 0.16)',
+              color: running ? '#FFB400' : '#00E87A',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <span>{running ? '⏸' : '▶'}</span>
+            <span>{running ? 'PAUSE' : 'RESUME'}</span>
+          </button>
+
+          <button
+            onClick={restartSim}
+            title="Restart simulation (re-clear and re-populate all vehicles, signals, and metrics)"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '3px 9px',
+              borderRadius: 4,
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: 'pointer',
+              border: '1px solid rgba(61, 158, 255, 0.4)',
+              background: 'rgba(61, 158, 255, 0.12)',
+              color: '#3D9EFF',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <span>🔄</span>
+            <span>RESTART</span>
+          </button>
+        </div>
+
+        <div className="topbar__divider" />
         <div className="topbar__status">
-          <span className="topbar__status-dot" />
-          <span>LIVE</span>
+          <span className="topbar__status-dot" style={{ background: running ? '#00E87A' : '#FFB400' }} />
+          <span>{running ? 'LIVE' : 'PAUSED'}</span>
         </div>
       </div>
     </div>

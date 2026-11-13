@@ -28,13 +28,20 @@ export class Vehicle {
     this.length = dim.length * CANVAS_SCALE;
     this.width = dim.width * CANVAS_SCALE;
     
-    // Physics parameters for IDM
-    const baseSpeedPxS = (dim.maxSpeed * 1000 / 3600) * CANVAS_SCALE;
-    this.v0 = baseSpeedPxS * (0.85 + Math.random() * 0.3); // Desired speed
-    this.a = dim.accel * CANVAS_SCALE; // Max acceleration
-    this.b = dim.accel * 1.5 * CANVAS_SCALE; // Comfortable deceleration
-    this.T = 1.2; // Safe time headway (seconds)
-    this.s0 = 10 * CANVAS_SCALE; // Minimum bumper-to-bumper distance (pixels)
+    // Heterogeneous vehicle-specific speed & physics profiles
+    this.driverFactor = 0.92 + Math.random() * 0.16; // Natural driver heterogeneity (avoids artificial locking)
+    const baseFreeFlowKmh = dim.freeFlowSpeedKmh || 42;
+    const baseApproachKmh = dim.approachSpeedKmh || 24;
+
+    this.vFreeFlow = ((baseFreeFlowKmh * 1000) / 3600) * CANVAS_SCALE * this.driverFactor;
+    this.vApproach = ((baseApproachKmh * 1000) / 3600) * CANVAS_SCALE * this.driverFactor;
+    this.v0 = this.vFreeFlow;
+
+    // Heterogeneous IDM parameters per vehicle class
+    this.a = (dim.accel || 2.2) * CANVAS_SCALE;
+    this.b = (dim.decel || 3.5) * CANVAS_SCALE;
+    this.T = dim.headway || 1.1; // Safe time headway (seconds)
+    this.s0 = (dim.minGap || 7.5) * CANVAS_SCALE; // Minimum bumper gap (pixels)
 
     this.color = CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
     if (type === 'bus') this.color = '#FFB400';
@@ -224,9 +231,12 @@ export class Vehicle {
     const from = this.graph.nodes.get(edge.from);
     const to = this.graph.nodes.get(edge.to);
 
-    const speedLimit = ((edge.speedLimit || 40) * 1000 / 3600) * CANVAS_SCALE * weatherMult;
-    const currentV0 = Math.min(this.v0, speedLimit);
-    
+    // 1. Spatial Speed Dynamics based on vehicle type and road hierarchy
+    // Multi-lane roads (2 or 3 lanes) allow higher cruising speeds (+12%) than narrow 1-lane roads
+    const roadHierarchyMult = edge.lanes >= 3 ? 1.15 : (edge.lanes === 2 ? 1.08 : 0.95);
+    const freeFlowTarget = this.vFreeFlow * roadHierarchyMult * weatherMult;
+    const approachTarget = this.vApproach * weatherMult;
+
     // --- 1. Find Lead Vehicle (Car Following) ---
     const queryRadius = Math.max(45, (this.speed * 2.0) + this.length);
     const ahead = spatialGrid.query(this.pos.x, this.pos.y, queryRadius);
@@ -253,6 +263,9 @@ export class Vehicle {
     let stopAtIntersection = false;
     let distToIntersection = Infinity;
     let stopLineDist = 15;
+    let currentV0 = freeFlowTarget;
+    let accelMult = 1.0;
+    let headwayTarget = this.T;
     
     const nextIntersection = this.nextNode;
     if (nextIntersection) {
@@ -265,6 +278,37 @@ export class Vehicle {
         stopLineDist = Math.max(14, (intObj.maxLanes || 2) * LANE_WIDTH_PX() * 0.65);
         distToIntersection = (1 - this.segmentProgress) * edge.length;
         const distToStopLine = distToIntersection - stopLineDist;
+
+        // Spatial speed adaptation at different points:
+        if (distToStopLine <= 0) {
+          // Point A: Inside the intersection box — accelerate to clear junction rapidly
+          currentV0 = freeFlowTarget * 1.15;
+          accelMult = 1.35;
+          headwayTarget = 0.5;
+        } else if (distToStopLine < 50 * CANVAS_SCALE) {
+          // Point B: Approaching intersection (within 50px)
+          if (lightColor === 'GREEN' || this.sirenActive) {
+            currentV0 = Math.max(approachTarget, freeFlowTarget * 0.90);
+          } else {
+            currentV0 = approachTarget;
+          }
+        }
+
+        // Corner turning slowdown (realistic 18-22 km/h entry speed into turns)
+        if (this.routeIndex + 2 < this.route.length && distToStopLine < 25 * CANVAS_SCALE) {
+          const nextNode = this.graph.nodes.get(this.route[this.routeIndex + 1]);
+          const afterNode = this.graph.nodes.get(this.route[this.routeIndex + 2]);
+          if (from && nextNode && afterNode) {
+            const dx1 = nextNode.x - from.x, dy1 = nextNode.y - from.y;
+            const dx2 = afterNode.x - nextNode.x, dy2 = afterNode.y - nextNode.y;
+            const dot = dx1 * dx2 + dy1 * dy2;
+            const m1 = Math.hypot(dx1, dy1), m2 = Math.hypot(dx2, dy2);
+            if (m1 > 0 && m2 > 0 && (dot / (m1 * m2)) < 0.7) {
+              const turnLimit = ((22 * 1000) / 3600) * CANVAS_SCALE;
+              currentV0 = Math.min(currentV0, turnLimit);
+            }
+          }
+        }
 
         // RULE 1: Only vehicles BEFORE the stop line (distToStopLine > 0) can stop.
         // Once a vehicle has crossed the stop line (distToStopLine <= 0), it has entered
@@ -378,9 +422,9 @@ export class Vehicle {
     
     // Police discharge boost & queue compaction:
     const isUnderPolice = nextIntersection && intersections.get(this.route[this.routeIndex + 1])?.policeActive;
-    const accelCurrent = isUnderPolice ? this.a * 1.5 : this.a;
-    const headwayCurrent = isUnderPolice ? 0.6 : this.T;
-    const minDistance = this.speed < 2 ? 3.5 * CANVAS_SCALE : this.s0;
+    const accelCurrent = (isUnderPolice ? this.a * 1.5 : this.a) * accelMult;
+    const headwayCurrent = isUnderPolice ? 0.6 : headwayTarget;
+    const minDistance = this.speed < 2 ? (this.s0 * 0.65) : this.s0;
 
     if (effectiveGap === Infinity) {
       // Free road term
@@ -405,13 +449,18 @@ export class Vehicle {
       this.state = 'moving';
     }
 
-    // --- 4. Simple Lane Changing (Overtaking) ---
-    // Only attempt to change lanes if significantly slowed down by a vehicle
-    if (leadVehicle && this.speed < currentV0 * 0.7 && edge.lanes > 1) {
+    // --- 4. Simple Lane Changing & Two-Wheeler Filtering ---
+    // Two-wheelers filter aggressively through slow queues; other vehicles overtake when delayed
+    const isBike = (this.type === 'motorcycle' || this.type === 'rickshaw');
+    const changeThreshold = isBike ? 0.85 : 0.65;
+    const cooldownMs = isBike ? 900 : 2000;
+    const minSafetyGap = isBike ? 8 * CANVAS_SCALE : 18 * CANVAS_SCALE;
+
+    if (leadVehicle && this.speed < currentV0 * changeThreshold && edge.lanes > 1) {
       const now = performance.now();
       if (!this.lastLaneChangeTime) this.lastLaneChangeTime = 0;
       
-      if (now - this.lastLaneChangeTime > 2000) { // 2 second cooldown
+      if (now - this.lastLaneChangeTime > cooldownMs) {
         const candidates = [];
         if (this.laneIndex > 0) candidates.push(this.laneIndex - 1);
         if (this.laneIndex < edge.lanes - 1) candidates.push(this.laneIndex + 1);
@@ -421,13 +470,13 @@ export class Vehicle {
 
         for (const tLane of candidates) {
           let safe = true;
-          const targetAhead = spatialGrid.query(this.pos.x, this.pos.y, 50);
+          const targetAhead = spatialGrid.query(this.pos.x, this.pos.y, 45);
           for (const other of targetAhead) {
             if (other.id === this.id || !other.alive) continue;
             if (other.currentEdgeId === this.currentEdgeId && other.laneIndex === tLane) {
                const dist = (other.segmentProgress - this.segmentProgress) * edge.length;
                const gap = Math.abs(dist) - (this.length + other.length) / 2;
-               if (gap < 20 * CANVAS_SCALE) {
+               if (gap < minSafetyGap) {
                  safe = false; // Too close!
                  break;
                }

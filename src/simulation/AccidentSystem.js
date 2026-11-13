@@ -54,11 +54,22 @@ export class AccidentSystem {
   clearAccident(id, graph) {
     const acc = this.accidents.get(id);
     if (!acc) return;
-    const edge = graph.edges.get(acc.edgeId);
-    if (edge) edge.blocked = 0;
-    const rev = graph.edges.get(acc.edgeIdReverse);
-    if (rev) rev.blocked = 0;
+    if (graph && graph.edges) {
+      const edge = graph.edges.get(acc.edgeId);
+      if (edge) edge.blocked = 0;
+      const rev = graph.edges.get(acc.edgeIdReverse);
+      if (rev) rev.blocked = 0;
+    }
     this.accidents.delete(id);
+  }
+
+  clearAll(graph = null) {
+    if (graph && graph.edges) {
+      for (const id of Array.from(this.accidents.keys())) {
+        this.clearAccident(id, graph);
+      }
+    }
+    this.accidents.clear();
   }
 
   getBlockedEdges(graph = null) {

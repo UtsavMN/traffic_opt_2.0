@@ -93,6 +93,62 @@ export class Engine {
     this.intersectionDischarges.push(this._simTime);
   }
 
+  restart() {
+    for (const v of this.vehicles) {
+      if (v) this.vehiclePool.release(v);
+    }
+    this.vehicles = [];
+    this.cyclists = [];
+    if (this.accidents) this.accidents.clearAll(this.graph);
+    
+    for (const [, int] of this.intersections) {
+      int.queues = { N: 0, S: 0, E: 0, W: 0 };
+      int.maxWait = 0;
+      int.totalWaitSeconds = 0;
+      int.vehiclesPassedAccumulatedController = 0;
+      int.vehiclesPassedAccumulatedRL = 0;
+      int.vehiclesPassedThisGreenPhase = 0;
+      int.aiCooldown = 0;
+      int.trafficLight.forcePhase(0); // Reset to standard starting phase
+      int.trafficLight.setGreenDuration(18);
+    }
+    
+    this.spatialGrid.clear();
+    this.totalSpawned = 0;
+    this.totalDespawned = 0;
+    this.totalWaitTime = 0;
+    this.vehiclesPassed = 0;
+    this.completedTrips = [];
+    this.intersectionDischarges = [];
+    this._simTime = 0;
+    this._spawnTimer = 0;
+    this.avgWait = new RollingAverage(200);
+
+    if (this.onMetricsUpdate) {
+      this.onMetricsUpdate({
+        vehicleCount: 0,
+        waitingCount: 0,
+        pedestrianCount: 0,
+        cyclistCount: 0,
+        avgWaitTime: 0,
+        throughput: 0,
+        totalSpawned: 0,
+        totalDespawned: 0,
+        fps: this.fps,
+        timeOfDay: this.timeOfDay.hour,
+        timeLocked: this.timeOfDay.isLocked,
+        weather: this.weather.current,
+        simSpeed: this.simSpeed,
+        spawnRate: this.spawnRate,
+        intersectionCount: this.intersections.size,
+        policeCount: this.policeUnits.length,
+        avgSpeedKmh: 40.0,
+        congestionLevel: 0,
+        avgImbalance: 0,
+      });
+    }
+  }
+
   loadCity(graph) {
     if (!this._pfWorker) return;
     this.graph = graph;

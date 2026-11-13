@@ -26,7 +26,7 @@ const OVERLAY_OPTIONS = [
 
 export default function Sidebar({
   setSimSpeed, setSpawnRate, setWeather, setTimeOfDay, setTimeLocked,
-  changeScenario, triggerAccident, setOverlay, togglePause,
+  changeScenario, triggerAccident, setOverlay, togglePause, restartSim,
 }) {
   const simSpeed = useSimStore(s => s.simSpeed);
   const weather = useSimStore(s => s.weather);
@@ -111,26 +111,45 @@ export default function Sidebar({
         </div>
 
         <div className="control-row" style={{ display: 'flex', alignItems: 'center' }}>
-          <span className="control-row__label">Sim Speed</span>
-          <button 
-            className="speed-btn" 
-            style={{ 
-              marginLeft: 'auto', 
-              background: running ? 'rgba(255, 59, 92, 0.15)' : 'rgba(0, 232, 122, 0.15)',
-              color: running ? '#FF3B5C' : '#00E87A',
-              border: running ? '1px solid rgba(255, 59, 92, 0.3)' : '1px solid rgba(0, 232, 122, 0.3)',
-              boxShadow: running ? '0 0 10px rgba(255, 59, 92, 0.3)' : '0 0 10px rgba(0, 232, 122, 0.3)',
-              padding: '2px 8px',
-              fontSize: 10,
-              fontWeight: 700,
-              borderRadius: 3,
-              cursor: 'pointer',
-              transition: 'all 0.2s ease'
-            }}
-            onClick={togglePause}
-          >
-            {running ? '⏸ PAUSE' : '▶ PLAY'}
-          </button>
+          <span className="control-row__label">Simulation</span>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            <button 
+              className="speed-btn" 
+              style={{ 
+                background: running ? 'rgba(255, 180, 0, 0.15)' : 'rgba(0, 232, 122, 0.15)',
+                color: running ? '#FFB400' : '#00E87A',
+                border: running ? '1px solid rgba(255, 180, 0, 0.35)' : '1px solid rgba(0, 232, 122, 0.35)',
+                padding: '2px 8px',
+                fontSize: 10,
+                fontWeight: 700,
+                borderRadius: 3,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+              onClick={togglePause}
+              title={running ? 'Pause simulation' : 'Resume simulation'}
+            >
+              {running ? '⏸ PAUSE' : '▶ RESUME'}
+            </button>
+            <button 
+              className="speed-btn" 
+              style={{ 
+                background: 'rgba(61, 158, 255, 0.15)',
+                color: '#3D9EFF',
+                border: '1px solid rgba(61, 158, 255, 0.35)',
+                padding: '2px 8px',
+                fontSize: 10,
+                fontWeight: 700,
+                borderRadius: 3,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+              onClick={restartSim}
+              title="Restart simulation"
+            >
+              🔄 RESTART
+            </button>
+          </div>
         </div>
         <div className="speed-buttons">
           {SPEED_OPTIONS.map(s => (

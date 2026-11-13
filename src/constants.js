@@ -9,12 +9,67 @@ export function setCanvasScale(scale) {
 
 export const LANE_WIDTH_PX = () => REAL_LANE_WIDTH_M * CANVAS_SCALE;
 
-// Vehicle real-world dimensions (meters):
+// Vehicle real-world dimensions (meters) & heterogeneous Bengaluru urban speed profiles
+// Based on Indian Roads Congress (IRC), CiSTUP (IISc), and Bengaluru Traffic Police mobility surveys
 export const VEHICLE_DIMS = {
-  car:        { length: 4.5,  width: 1.8, maxSpeed: 150, accel: 2.5, decel: 4.0 },
-  motorcycle: { length: 2.2,  width: 0.8, maxSpeed: 180, accel: 4.0, decel: 5.0 },
-  bus:        { length: 12.0, width: 2.5, maxSpeed: 80,  accel: 1.2, decel: 2.5 },
-  truck:      { length: 8.5,  width: 2.4, maxSpeed: 90,  accel: 1.0, decel: 2.0 },
-  emergency:  { length: 5.5,  width: 2.1, maxSpeed: 160, accel: 3.5, decel: 4.5 },
-  rickshaw:   { length: 2.8,  width: 1.4, maxSpeed: 60,  accel: 1.8, decel: 3.0 },
+  motorcycle: {
+    length: 2.0,
+    width: 0.8,
+    freeFlowSpeedKmh: 46, // 40-52 km/h free flow
+    approachSpeedKmh: 28,
+    accel: 3.2,           // Agile 2-wheeler acceleration
+    decel: 4.5,
+    headway: 0.7,         // Tight time headway
+    minGap: 3.5,          // Minimal queue bumper distance
+  },
+  rickshaw: {
+    length: 2.8,
+    width: 1.4,
+    freeFlowSpeedKmh: 35, // 30-38 km/h free flow
+    approachSpeedKmh: 22,
+    accel: 1.8,
+    decel: 3.2,
+    headway: 0.9,
+    minGap: 5.0,
+  },
+  car: {
+    length: 4.5,
+    width: 1.8,
+    freeFlowSpeedKmh: 42, // 36-48 km/h free flow
+    approachSpeedKmh: 25,
+    accel: 2.2,
+    decel: 3.8,
+    headway: 1.1,
+    minGap: 7.5,
+  },
+  bus: {
+    length: 11.5,
+    width: 2.5,
+    freeFlowSpeedKmh: 32, // BMTC City Bus 26-36 km/h
+    approachSpeedKmh: 18,
+    accel: 1.1,
+    decel: 2.4,
+    headway: 1.5,
+    minGap: 12.0,
+  },
+  truck: {
+    length: 8.5,
+    width: 2.4,
+    freeFlowSpeedKmh: 28, // Heavy commercial 24-32 km/h
+    approachSpeedKmh: 16,
+    accel: 0.9,
+    decel: 2.0,
+    headway: 1.7,
+    minGap: 14.0,
+  },
+  emergency: {
+    length: 5.5,
+    width: 2.1,
+    freeFlowSpeedKmh: 58, // Ambulance 50-65 km/h
+    approachSpeedKmh: 40,
+    accel: 3.5,
+    decel: 4.5,
+    headway: 0.8,
+    minGap: 5.0,
+  },
 };

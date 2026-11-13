@@ -15,10 +15,13 @@ export default function App() {
       <TopBar
         setTimeOfDay={sim.setTimeOfDay}
         setTimeLocked={sim.setTimeLocked}
+        togglePause={sim.togglePause}
+        restartSim={sim.restartSim}
       />
       <Sidebar
         setSimSpeed={sim.setSimSpeed}
         togglePause={sim.togglePause}
+        restartSim={sim.restartSim}
         setSpawnRate={sim.setSpawnRate}
         setWeather={sim.setWeather}
         setTimeOfDay={sim.setTimeOfDay}

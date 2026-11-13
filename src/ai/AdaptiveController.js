@@ -14,28 +14,33 @@ export class AdaptiveController {
     this.totalDecisions = 0;
     this.totalReward = 0;
     this.rewardHistory = [];
-    this.mode = 'ADAPTIVE';
+    this.mode = 'DYNAMIC_AUTO'; // Flagship mode: Autonomous Dynamic Selection
     this.coordinator = null; // Set externally in useSimulation.js
 
     // Queue-proportional parameters
     this.MIN_GREEN = MIN_GREEN_S; // 10s minimum — safety clearance & anti-flapping
-    this.MAX_GREEN = MAX_GREEN_S; // 60s maximum — prevent starvation
+    this.MAX_GREEN = MAX_GREEN_S; // 25s maximum — prevent starvation
     this.MAX_EXPECTED = 30;       // vehicles — scale reference
 
     this.onDecision = null;
   }
 
   get rlActive() {
-    return this.mode === 'RL_ACTIVE';
+    return this.mode === 'RL_ACTIVE' || this.mode === 'DYNAMIC_AUTO';
   }
   set rlActive(val) {
     if (val) {
-      this.mode = 'RL_ACTIVE';
-      useAIStore.getState().setMode('RL_ACTIVE');
+      this.mode = 'DYNAMIC_AUTO';
+      useAIStore.getState().setMode('DYNAMIC_AUTO');
     } else {
       this.mode = 'ADAPTIVE';
       useAIStore.getState().setMode('ADAPTIVE');
     }
+  }
+
+  setMode(mode) {
+    this.mode = mode;
+    useAIStore.getState().setMode(mode);
   }
 
   update(dt, engine) {
@@ -77,7 +82,12 @@ export class AdaptiveController {
 
         decision.reward = reward;
         this.decisions.push(decision);
-        if (this.decisions.length > 20) this.decisions.shift();
+        if (this.decisions.length > 25) this.decisions.shift();
+
+        // If in DYNAMIC_AUTO mode, update arbitration statistics
+        if (this.mode === 'DYNAMIC_AUTO' && decision.model) {
+          useAIStore.getState().recordDynamicDecision(decision.model);
+        }
 
         if (this.onDecision) this.onDecision(decision);
 
@@ -89,6 +99,7 @@ export class AdaptiveController {
             action: decision.action,
             reason: decision.reason,
             reward: reward,
+            model: decision.model,
             queues: { ...int.queues },
           });
         }
@@ -111,6 +122,49 @@ export class AdaptiveController {
     return this.MIN_GREEN + (Math.min(queueCount, this.MAX_EXPECTED) / this.MAX_EXPECTED) * (this.MAX_GREEN - this.MIN_GREEN);
   }
 
+  _arbitrateModel(int, engine, state, qValues) {
+    if (!this.coordinator || !this.coordinator.rlAgent) {
+      return { model: 'ADAPTIVE', reasonDetail: 'Adaptive baseline' };
+    }
+
+    const totalQueue = int.getTotalQueue();
+    const currentIsNS = int.trafficLight.currentPhase.includes('NS');
+    const currentQueue = currentIsNS ? int.getQueueNS() : int.getQueueEW();
+    const opposingQueue = currentIsNS ? int.getQueueEW() : int.getQueueNS();
+
+    // Corridor & neighbor pressure from GNN state encoder (state[3]: avgNeighborActive, state[4]: avgNeighborOpposing)
+    const neighborPressure = (state[3] || 0) + (state[4] || 0);
+
+    // Neural policy confidence: advantage of switching vs holding
+    const qAdvantage = Math.abs(qValues[1] - qValues[0]);
+
+    // Fast-path for empty approaches: instant actuated clearance
+    if (currentQueue === 0 && opposingQueue > 0) {
+      return { model: 'ADAPTIVE', reasonDetail: 'empty approach clearance' };
+    }
+
+    // High corridor demand / wave conditions trigger Sanchar DQN:
+    // 1. Total queues building up (>= 6)
+    // 2. Opposing queue high (>= 5)
+    // 3. Arterial corridor wave / neighbor pressure (>= 0.35)
+    // 4. Strong neural policy advantage (|ΔQ| >= 1.0 with active vehicles)
+    const isCorridorCongested = totalQueue >= 6 || opposingQueue >= 5;
+    const isArterialWave = neighborPressure >= 0.35;
+    const isHighConfidenceRL = qAdvantage >= 1.0 && totalQueue >= 3;
+
+    if (isArterialWave || isCorridorCongested || isHighConfidenceRL) {
+      const reasonDetail = isArterialWave
+        ? `corridor wave (${(neighborPressure * 100).toFixed(0)}% pressure)`
+        : isCorridorCongested
+          ? `surge demand (${totalQueue} veh)`
+          : `neural policy confidence (ΔQ=${qAdvantage.toFixed(1)})`;
+      return { model: 'DQN', reasonDetail };
+    }
+
+    // Low-density, isolated platoon: Adaptive MaxPressure provides minimal delay
+    return { model: 'ADAPTIVE', reasonDetail: `light demand (${totalQueue} veh)` };
+  }
+
   _evaluate(int, engine) {
     const tl = int.trafficLight;
     const nsQ = int.getQueueNS();
@@ -129,6 +183,7 @@ export class AdaptiveController {
         action: 'EMRG_PREEMPT',
         reason: `Ambulance approaching from ${int.emergencyDir} — ${dir} corridor priority`,
         time: Date.now(),
+        model: 'EMERGENCY',
       };
     }
 
@@ -147,35 +202,64 @@ export class AdaptiveController {
       return null;
     }
 
-    // Active Reinforcement Learning Decision Path
-    if (this.mode === 'RL_ACTIVE' && this.coordinator) {
+    // Decide which model controls this evaluation
+    let selectedModel = 'ADAPTIVE';
+    let arbitrationDetail = '';
+    let rlState = null;
+    let rlQValues = null;
+
+    if (this.coordinator && this.coordinator.rlAgent) {
       const rlAgent = this.coordinator.rlAgent;
-      const state = rlAgent.encoder.encode(int, engine);
-      const qValues = rlAgent._getQValues(state);
-      const actionIdx = rlAgent._selectAction(state);
+      rlState = rlAgent.encoder.encode(int, engine);
+      rlQValues = rlAgent._getQValues(rlState);
+
+      if (this.mode === 'RL_ACTIVE') {
+        selectedModel = 'DQN';
+      } else if (this.mode === 'DYNAMIC_AUTO') {
+        const arb = this._arbitrateModel(int, engine, rlState, rlQValues);
+        selectedModel = arb.model;
+        arbitrationDetail = arb.reasonDetail;
+      } else {
+        // 'ADAPTIVE' or 'RL_SHADOW'
+        selectedModel = 'ADAPTIVE';
+      }
+    }
+
+    // ── PATH A: Sanchar Deep Q-Network (RL) ──
+    if (selectedModel === 'DQN' && this.coordinator && this.coordinator.rlAgent) {
+      const rlAgent = this.coordinator.rlAgent;
+      const actionIdx = rlAgent._selectAction(rlState);
       const actionName = ACTIONS[actionIdx];
 
-      // Execute chosen action safely through the compliance logic layer
+      // Execute chosen action safely through compliance logic layer
       const result = safeExecuteRLAction(
         int,
         actionName,
         this._executeRLAction.bind(this),
-        Array.from(qValues)
+        Array.from(rlQValues)
       );
 
       if (result.executed === 'KEEP_PHASE') {
         return null; // Quietly hold green
       }
 
+      const isDynamic = this.mode === 'DYNAMIC_AUTO';
+      const prefix = isDynamic ? `[Auto: DQN]` : `[Sanchar DQN]`;
+
       return {
         intersectionId: int.id,
         action: result.executed === 'SWITCH_PHASE' ? (currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS') : result.executed,
         reason: result.vetoed
-          ? `${result.reason} (policy suggested ${result.vetoed})`
-          : `Sanchar DQN (Q_sw=${qValues[1].toFixed(1)}, Q_kp=${qValues[0].toFixed(1)})`,
+          ? `${prefix} ${result.reason} (policy suggested ${result.vetoed})`
+          : `${prefix} ${arbitrationDetail ? arbitrationDetail + ' ' : ''}(Q_sw=${rlQValues[1].toFixed(1)}, Q_kp=${rlQValues[0].toFixed(1)})`.trim(),
         time: Date.now(),
+        model: 'DQN',
       };
     }
+
+    // ── PATH B: Adaptive MaxPressure / Actuated Rules ──
+    const isDynamic = this.mode === 'DYNAMIC_AUTO';
+    const prefix = isDynamic ? `[Auto: Adaptive]` : `[Adaptive]`;
 
     // Rule 1: Switch if current direction is empty AND opposing has vehicles (must respect MIN_GREEN)
     if (timeInPhase >= this.MIN_GREEN && currentQueue === 0 && opposingQueue > 0) {
@@ -183,8 +267,9 @@ export class AdaptiveController {
       return {
         intersectionId: int.id,
         action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
-        reason: `Empty current approach (0) vs opposing (${opposingQueue})`,
+        reason: `${prefix} Empty approach (0) vs opposing (${opposingQueue})`,
         time: Date.now(),
+        model: 'ADAPTIVE',
       };
     }
 
@@ -194,8 +279,9 @@ export class AdaptiveController {
       return {
         intersectionId: int.id,
         action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
-        reason: `Starvation guard: Opposing wait ${int.maxWait.toFixed(1)}s > 18s`,
+        reason: `${prefix} Starvation guard: Opposing wait ${int.maxWait.toFixed(1)}s > 18s`,
         time: Date.now(),
+        model: 'ADAPTIVE',
       };
     }
 
@@ -205,8 +291,9 @@ export class AdaptiveController {
       return {
         intersectionId: int.id,
         action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
-        reason: `Max green (${this.MAX_GREEN}s) ceiling reached`,
+        reason: `${prefix} Max green (${this.MAX_GREEN}s) ceiling reached`,
         time: Date.now(),
+        model: 'ADAPTIVE',
       };
     }
 
@@ -217,8 +304,9 @@ export class AdaptiveController {
       return {
         intersectionId: int.id,
         action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
-        reason: `Imbalance trigger: Opposing (${opposingQueue}) > Active (${currentQueue})`,
+        reason: `${prefix} Imbalance: Opposing (${opposingQueue}) > Active (${currentQueue})`,
         time: Date.now(),
+        model: 'ADAPTIVE',
       };
     }
 
@@ -229,8 +317,9 @@ export class AdaptiveController {
       return {
         intersectionId: int.id,
         action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
-        reason: `Ideal green (${ideal.toFixed(1)}s) fulfilled`,
+        reason: `${prefix} Ideal green (${ideal.toFixed(1)}s) fulfilled`,
         time: Date.now(),
+        model: 'ADAPTIVE',
       };
     }
 

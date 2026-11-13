@@ -17,6 +17,7 @@ export default function AIBrainPanel({ getIntersectionData }) {
   const trainingSteps = useAIStore(s => s.trainingSteps);
   const replaySize = useAIStore(s => s.replaySize);
   const epsilon = useAIStore(s => s.epsilon);
+  const dynamicStats = useAIStore(s => s.dynamicStats);
   const selectedId = useUIStore(s => s.selectedIntersection);
   const [intData, setIntData] = useState(null);
 
@@ -43,30 +44,78 @@ export default function AIBrainPanel({ getIntersectionData }) {
     <div className="ai-panel">
       {/* AI Status */}
       <div className="panel-section">
-        <div className="panel-section__title">AI Engine</div>
+        <div className="panel-section__title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>AI Engine</span>
+          {mode === 'DYNAMIC_AUTO' && (
+            <span style={{ fontSize: 9, color: 'var(--signal-purple)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#9B6FFF', display: 'inline-block', boxShadow: '0 0 6px #9B6FFF' }} />
+              AUTONOMOUS
+            </span>
+          )}
+        </div>
         <div className="ai-mode-steps">
           <div 
-            className={`ai-mode-step ${mode === 'ADAPTIVE' ? 'ai-mode-step--active' : 'ai-mode-step--completed'}`}
+            className={`ai-mode-step ${mode === 'DYNAMIC_AUTO' ? 'ai-mode-step--active ai-mode-step--dynamic' : ''}`}
             style={{ cursor: 'pointer' }}
-            onClick={() => useAIStore.getState().setMode('ADAPTIVE')}
+            onClick={() => useAIStore.getState().setMode('DYNAMIC_AUTO')}
+            title="Dynamic Auto: Agent autonomously selects the best model per intersection based on corridor waves, queue congestion, and neural policy confidence"
           >
-            Adaptive
+            ⚡ Dynamic
           </div>
           <div 
-            className={`ai-mode-step ${mode === 'RL_SHADOW' ? 'ai-mode-step--active' : ''}`}
+            className={`ai-mode-step ${mode === 'ADAPTIVE' ? 'ai-mode-step--active' : ''}`}
             style={{ cursor: 'pointer' }}
-            onClick={() => useAIStore.getState().setMode('RL_SHADOW')}
+            onClick={() => useAIStore.getState().setMode('ADAPTIVE')}
+            title="Adaptive MaxPressure rule-based actuation"
           >
-            RL Shadow
+            Adaptive
           </div>
           <div 
             className={`ai-mode-step ${mode === 'RL_ACTIVE' ? 'ai-mode-step--active' : ''}`}
             style={{ cursor: 'pointer' }}
             onClick={() => useAIStore.getState().setMode('RL_ACTIVE')}
+            title="Sanchar Deep Q-Network policy"
           >
             RL Active
           </div>
+          <div 
+            className={`ai-mode-step ${mode === 'RL_SHADOW' ? 'ai-mode-step--active' : ''}`}
+            style={{ cursor: 'pointer' }}
+            onClick={() => useAIStore.getState().setMode('RL_SHADOW')}
+            title="Shadow training mode: Adaptive controls physical traffic while RL learns"
+          >
+            RL Shadow
+          </div>
         </div>
+
+        {/* Dynamic Model Arbitration Monitor */}
+        {mode === 'DYNAMIC_AUTO' && dynamicStats && (
+          <div className="dynamic-arbitration-card animate-fade-in">
+            <div className="dynamic-arbitration-header">
+              <span className="dynamic-badge">⚡ DYNAMIC ARBITRATION</span>
+              <span className="dynamic-ratio">
+                <span style={{ color: '#bfa4ff' }}>DQN {dynamicStats.dqnPercentage}%</span>
+                {' '}/{' '}
+                <span style={{ color: '#40ef9f' }}>ADAPT {100 - dynamicStats.dqnPercentage}%</span>
+              </span>
+            </div>
+            <div className="dynamic-split-bar">
+              <div 
+                className="dynamic-split-fill dynamic-split-fill--dqn" 
+                style={{ width: `${dynamicStats.dqnPercentage}%` }} 
+                title={`Sanchar DQN: ${dynamicStats.dqnDecisions} decisions (${dynamicStats.dqnPercentage}%)`}
+              />
+              <div 
+                className="dynamic-split-fill dynamic-split-fill--adapt" 
+                style={{ width: `${100 - dynamicStats.dqnPercentage}%` }} 
+                title={`Adaptive MaxPressure: ${dynamicStats.adaptiveDecisions} decisions (${100 - dynamicStats.dqnPercentage}%)`}
+              />
+            </div>
+            <div className="dynamic-explanation">
+              Auto-routes corridor surges to <strong>Sanchar DQN</strong> & light demand to <strong>Adaptive</strong>.
+            </div>
+          </div>
+        )}
 
         <div className="reward-stat">
           <span className={`reward-stat__value ${avgReward >= 0 ? 'text-green' : 'text-red'}`}>
@@ -119,9 +168,14 @@ export default function AIBrainPanel({ getIntersectionData }) {
         <div className="panel-section__title">Recent Decisions</div>
         <div className="decision-log">
           {decisions.slice().reverse().slice(0, 10).map((d, i) => (
-            <div key={i} className="decision-entry animate-fade-in">
+            <div key={i} className="decision-entry animate-fade-in" title={d.reason || ''}>
               <span className="decision-entry__time">
                 {new Date(d.time).toLocaleTimeString('en', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+              <span className="decision-entry__model">
+                <span className={`model-pill ${d.model === 'DQN' ? 'model-pill--dqn' : d.model === 'EMERGENCY' ? 'model-pill--emrg' : 'model-pill--adapt'}`}>
+                  {d.model === 'DQN' ? 'DQN' : d.model === 'EMERGENCY' ? 'EMRG' : 'ADAPT'}
+                </span>
               </span>
               <span className="decision-entry__action">
                 #{d.intersectionId} {ACTION_LABELS[d.action] || d.action}

@@ -537,23 +537,26 @@ body {
 
 .ai-mode-steps {
   display: flex;
-  gap: 4px;
+  gap: 3px;
   flex: 1;
 }
 
 .ai-mode-step {
   flex: 1;
-  padding: 4px 0;
+  padding: 5px 2px;
   text-align: center;
-  font-size: 8px;
+  font-size: 7.5px;
   font-family: var(--font-display);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.05em;
   border-radius: var(--radius-sm);
   background: rgba(255,255,255,0.03);
   color: var(--text-tertiary);
   border: 1px solid var(--border-subtle);
-  transition: all 0.3s ease;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ai-mode-step--active {
@@ -563,11 +566,121 @@ body {
   box-shadow: 0 0 8px rgba(155,111,255,0.3);
 }
 
+.ai-mode-step--dynamic.ai-mode-step--active {
+  background: linear-gradient(135deg, rgba(155,111,255,0.22), rgba(0,232,122,0.18));
+  border-color: rgba(155,111,255,0.6);
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(155,111,255,0.35);
+}
+
 .ai-mode-step--completed {
   background: rgba(0,232,122,0.1);
   border-color: rgba(0,232,122,0.3);
   color: var(--signal-green);
   box-shadow: 0 0 8px rgba(0,232,122,0.15);
+}
+
+/* Dynamic Model Arbitration Card */
+.dynamic-arbitration-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(155, 111, 255, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  margin-top: 6px;
+  margin-bottom: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dynamic-arbitration-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 8.5px;
+}
+
+.dynamic-badge {
+  color: var(--signal-purple);
+  font-weight: 600;
+  font-family: var(--font-display);
+  letter-spacing: 0.06em;
+}
+
+.dynamic-ratio {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.dynamic-split-bar {
+  height: 4px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  overflow: hidden;
+  display: flex;
+}
+
+.dynamic-split-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.dynamic-split-fill--dqn {
+  background: var(--signal-purple);
+  box-shadow: 0 0 6px rgba(155, 111, 255, 0.4);
+}
+
+.dynamic-split-fill--adapt {
+  background: var(--signal-green);
+  box-shadow: 0 0 6px rgba(0, 232, 122, 0.4);
+}
+
+.dynamic-explanation {
+  font-size: 8px;
+  color: var(--text-tertiary);
+  line-height: 1.3;
+}
+
+.dynamic-explanation strong {
+  color: var(--text-secondary);
+}
+
+/* Decision Entry Model Pills */
+.decision-entry__model {
+  display: flex;
+  align-items: center;
+}
+
+.model-pill {
+  display: inline-block;
+  padding: 1px 3.5px;
+  border-radius: 3px;
+  font-size: 7.5px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.model-pill--dqn {
+  background: rgba(155, 111, 255, 0.18);
+  color: #c4abff;
+  border: 1px solid rgba(155, 111, 255, 0.35);
+}
+
+.model-pill--adapt {
+  background: rgba(0, 232, 122, 0.15);
+  color: #52f0a8;
+  border: 1px solid rgba(0, 232, 122, 0.3);
+}
+
+.model-pill--emrg {
+  background: rgba(255, 59, 92, 0.2);
+  color: #ff6682;
+  border: 1px solid rgba(255, 59, 92, 0.4);
 }
 
 /* Reward Stat */
@@ -610,8 +723,8 @@ body {
 
 .decision-entry {
   display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 6px;
+  grid-template-columns: auto auto 1fr auto;
+  gap: 5px;
   padding: 4px 6px;
   border-radius: var(--radius-sm);
   background: rgba(255,255,255,0.02);

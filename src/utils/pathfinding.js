@@ -1,9 +1,11 @@
 import { MinHeap } from './MinHeap.js';
 
 /**
- * A* Pathfinding on CityGraph using MinHeap
+ * A* Pathfinding on CityGraph using MinHeap with stochastic congestion avoidance.
+ * Prevents corridor memorization / path overfitting by factoring in live vehicular
+ * load and realistic human driver route variation.
  */
-export function findPath(graph, startId, endId, blockedEdges = new Set(), jammedEdges = new Set()) {
+export function findPath(graph, startId, endId, blockedEdges = new Set(), jammedEdges = new Set(), randomize = true) {
   if (!graph.nodes.has(startId) || !graph.nodes.has(endId)) return null;
   const open = new MinHeap();
   const gScore = new Map([[startId, 0]]);
@@ -30,8 +32,16 @@ export function findPath(graph, startId, endId, blockedEdges = new Set(), jammed
       const edge = graph.getEdge(cur, nid);
       if (!edge) continue;
       
-      // Dynamic rerouting: scale up edge cost by 10x if the edge is jammed
-      const weight = (jammedEdges && jammedEdges.has(edgeKey)) ? 10.0 : 1.0;
+      // Dynamic rerouting:
+      // 1. Scaled cost for severe gridlock/jammed edges
+      const jamFactor = (jammedEdges && jammedEdges.has(edgeKey)) ? 12.0 : 1.0;
+      // 2. Live load avoidance: vehicles dynamically distribute across parallel streets
+      const liveVehicles = edge.vehicleCount || 0;
+      const congestionFactor = 1.0 + Math.min(2.5, liveVehicles * 0.18);
+      // 3. Human driver route variance (prevents rigid deterministic locking)
+      const driverJitter = randomize ? (0.88 + Math.random() * 0.24) : 1.0;
+      
+      const weight = jamFactor * congestionFactor * driverJitter;
       const g = (gScore.get(cur) || 0) + edge.length * weight;
       if (g < (gScore.get(nid) ?? Infinity)) {
         cameFrom.set(nid, cur);

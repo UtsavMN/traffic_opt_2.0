@@ -110,8 +110,10 @@ export class Engine {
       int.vehiclesPassedAccumulatedRL = 0;
       int.vehiclesPassedThisGreenPhase = 0;
       int.aiCooldown = 0;
-      int.trafficLight.forcePhase(0); // Reset to standard starting phase
-      int.trafficLight.setGreenDuration(18);
+      if (int.trafficLight) {
+        int.trafficLight.forcePhase(0); // Reset to standard starting phase
+        int.trafficLight.setGreenDuration(18);
+      }
     }
     
     this.spatialGrid.clear();
@@ -141,7 +143,7 @@ export class Engine {
         weather: this.weather.current,
         simSpeed: this.simSpeed,
         spawnRate: this.spawnRate,
-        intersectionCount: this.intersections.size,
+        intersectionCount: signalizedCount || this.intersections.size,
         policeCount: this.policeUnits.length,
         avgSpeedKmh: 40.0,
         congestionLevel: 0,
@@ -173,7 +175,20 @@ export class Engine {
     this._pfWorker.postMessage({ type: 'INIT', graph: serializedGraph });
 
     for (const [id, node] of graph.nodes) {
-      const intersection = new Intersection(id, node.x, node.y, node.zone, node.layer || 0);
+      const isElevated = (node.layer || 0) > 0 || node.isBridge;
+      const neighbors = graph.getNeighbors(id);
+      const allNeighbors = new Set(neighbors);
+      for (const [, edge] of graph.edges) {
+        if (edge.to === id) allNeighbors.add(edge.from);
+      }
+      
+      // True signalized junction criteria:
+      // 1. Surface level (never on elevated flyovers, bridges, or underpass troughs)
+      // 2. Multi-way crossroads or T-junctions (allNeighbors.size >= 3)
+      // Continuous highway corridors, mid-block curves, dead-ends, and flyovers are NOT signalized.
+      const isSignalized = !isElevated && allNeighbors.size >= 3;
+
+      const intersection = new Intersection(id, node.x, node.y, node.zone, node.layer || 0, isSignalized);
       // Wire up green phase callback (decoupled from React in Intersection.js)
       intersection.onGreenPhaseEnd = (hadVehicles) => {
         if (typeof window !== 'undefined' && (window.__sancharMetrics || window.__trafficOptMetrics)) {
@@ -286,25 +301,33 @@ export class Engine {
 
   _loop(now) {
     if (!this.running) return;
-    let dt = (now - this._lastTime) / 1000;
+    let rawDt = (now - this._lastTime) / 1000;
     this._lastTime = now;
-    if (dt > 0.1) dt = 0.1; // cap delta
+    if (rawDt > 0.1) rawDt = 0.1; // cap frame delta to 100ms
 
-    dt *= this.simSpeed;
+    const totalDt = rawDt * this.simSpeed;
 
     this.completedThisStep = 0;
     // Only run simulation update logic if not paused
     if (!this.paused) {
-      this._update(dt);
-      this._simTime += dt;
+      // Sub-step physics so at 2x/4x speed vehicles don't skip stop lines or glitch
+      // Ensures each physics sub-step dt is <= 33ms (~30Hz resolution)
+      const maxSubStepDt = 0.033;
+      const subSteps = Math.max(1, Math.min(6, Math.ceil(totalDt / maxSubStepDt)));
+      const subDt = totalDt / subSteps;
+
+      for (let s = 0; s < subSteps; s++) {
+        this._update(subDt);
+        this._simTime += subDt;
+      }
     }
     
-    // Always render so panning/zooming remains fluid
+    // Always render once per animation frame so panning/zooming remains fluid at 60 FPS
     this._render();
 
     // FPS tracking
     this._fpsFrames++;
-    this._fpsTimer += dt / this.simSpeed; // real time
+    this._fpsTimer += rawDt; // real elapsed time
     if (this._fpsTimer >= 1) {
       this.fps = Math.round(this._fpsFrames / this._fpsTimer);
       this._fpsFrames = 0;
@@ -662,10 +685,13 @@ export class Engine {
     this.intersectionDischarges = this.intersectionDischarges.filter(t => t >= windowStart);
 
     let totalImbalance = 0;
+    let signalizedCount = 0;
     for (const [, int] of this.intersections) {
+      if (!int.isSignalized) continue;
       totalImbalance += Math.abs(int.getQueueNS() - int.getQueueEW());
+      signalizedCount++;
     }
-    const avgImbalance = this.intersections.size > 0 ? totalImbalance / this.intersections.size : 0;
+    const avgImbalance = signalizedCount > 0 ? totalImbalance / signalizedCount : 0;
 
     // Calculate network average speed & TomTom/BCG Congestion Level (%)
     let totalSpeed = 0;
@@ -715,7 +741,7 @@ export class Engine {
         weather: this.weather.current,
         simSpeed: this.simSpeed,
         spawnRate: this.spawnRate,
-        intersectionCount: this.intersections.size,
+        intersectionCount: signalizedCount || this.intersections.size,
         policeCount: this.policeUnits.length,
         avgSpeedKmh: avgSpeedKmh,
         congestionLevel: congestionLevel,

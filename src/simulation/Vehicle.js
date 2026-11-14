@@ -80,6 +80,7 @@ export class Vehicle {
     this.isArriving = false;
     this.arrivalAlpha = 1.0;
     this.hasCompleted = false;
+    this.clearingJunction = false;
     
     this.currentEdgeId = null;
     this.laneIndex = undefined;
@@ -287,7 +288,9 @@ export class Vehicle {
     const nextIntersection = this.nextNode;
     if (nextIntersection) {
       const intObj = intersections.get(this.route[this.routeIndex + 1]);
-      if (intObj) {
+      // Only signalized at-grade multi-way junctions require traffic light checks!
+      // Continuous highways, flyovers, curved bends, and dead-ends are free-flow.
+      if (intObj && intObj.isSignalized && intObj.trafficLight) {
         const dir = this._getDirection();
         const lightColor = dir ? (dir === 'N' || dir === 'S' ? intObj.trafficLight.getColorNS() : intObj.trafficLight.getColorEW()) : 'GREEN';
         
@@ -298,12 +301,17 @@ export class Vehicle {
 
         // Spatial speed adaptation at different points:
         if (distToStopLine <= 0) {
-          // Point A: Inside the intersection box — accelerate to clear junction rapidly
-          currentV0 = freeFlowTarget * 1.15;
-          accelMult = 1.35;
-          headwayTarget = 0.5;
+          if (lightColor === 'GREEN' || this.sirenActive) {
+            this.clearingJunction = true; // Legally entered on green
+          }
+          if (this.clearingJunction) {
+            // Inside intersection box: accelerate briskly to clear junction rapidly
+            currentV0 = freeFlowTarget * 1.15;
+            accelMult = 1.35;
+            headwayTarget = 0.5;
+          }
         } else if (distToStopLine < 50 * CANVAS_SCALE) {
-          // Point B: Approaching intersection (within 50px)
+          // Approaching intersection (within 50px)
           if (lightColor === 'GREEN' || this.sirenActive) {
             currentV0 = Math.max(approachTarget, freeFlowTarget * 0.90);
           } else {
@@ -327,86 +335,33 @@ export class Vehicle {
           }
         }
 
-        // RULE 1: Only vehicles BEFORE the stop line (distToStopLine > 0) can stop.
-        // Once a vehicle has crossed the stop line (distToStopLine <= 0), it has entered
-        // the intersection box and MUST NEVER STOP — it has right-of-way to clear the junction!
-        if (distToStopLine > 0) {
-          // Check Traffic Signal: Stop for RED or YELLOW unless ambulance with active siren
-          if (lightColor !== 'GREEN' && !this.sirenActive) {
+        // Strict Red / Yellow Signal Obedience (No bypassing unless active emergency siren)
+        const isRedOrYellow = (lightColor !== 'GREEN');
+        if (isRedOrYellow && !this.sirenActive && !this.clearingJunction) {
+          // Check if vehicle is approaching or at the stop line
+          if (distToStopLine > -8 * CANVAS_SCALE) {
             stopAtIntersection = true;
-
-            // 1. Indian Free Left Turn Rule:
-            // Vehicles in the leftmost lane (Lane 0) making a left turn can proceed through RED
-            // if the immediate entry is clear of cross traffic.
-            if (this.laneIndex === 0 && this.routeIndex + 2 < this.route.length) {
-              const nextNode = this.graph.nodes.get(this.route[this.routeIndex + 1]);
-              const afterNode = this.graph.nodes.get(this.route[this.routeIndex + 2]);
-              if (from && nextNode && afterNode) {
-                const dx1 = nextNode.x - from.x, dy1 = nextNode.y - from.y;
-                const dx2 = afterNode.x - nextNode.x, dy2 = afterNode.y - nextNode.y;
-                const cross = dx1 * dy2 - dy1 * dx2; // negative = left turn in screen coords
-                if (cross < -0.1) {
-                  const boxOccupants = spatialGrid.query(intObj.x, intObj.y, stopLineDist * 0.7);
-                  let crossBlocked = false;
-                  for (const o of boxOccupants) {
-                    if (o.id !== this.id && o.alive && o.speed > 2.0) { crossBlocked = true; break; }
-                  }
-                  if (!crossBlocked) {
-                    stopAtIntersection = false; // Free Left Turn granted!
-                  }
-                }
-              }
-            }
-
-            // 2. Delayed / Jammed Signal Courtesy Adjustment:
-            // If stopped at red for > 15s and the junction is completely clear of cross traffic,
-            // vehicles adjust and treat it like an all-way stop rather than freezing indefinitely!
-            if (this.waitTime > 15.0 && distToStopLine < 10 * CANVAS_SCALE) {
-              const boxOccupants = spatialGrid.query(intObj.x, intObj.y, stopLineDist * 0.85);
-              let boxHasCross = false;
-              const isMyPhaseNS = (dir === 'N' || dir === 'S');
-              for (const o of boxOccupants) {
-                if (o.id !== this.id && o.alive) {
-                  const oDir = o._getDirection();
-                  if ((oDir === 'N' || oDir === 'S') !== isMyPhaseNS) {
-                    boxHasCross = true;
-                    break;
-                  }
-                }
-              }
-              if (!boxHasCross) {
-                stopAtIntersection = false; // Clear deserted intersection
-              }
-            }
-          }
-
-          // RULE 2: Yellow Box Rule ("Do Not Block The Box"):
-          // If light is GREEN, check if an intersecting cross-traffic vehicle is clearing the box.
-          // Arriving vehicles wait BEHIND THE STOP LINE (not inside the intersection).
-          if (!stopAtIntersection && distToStopLine < 30 * CANVAS_SCALE) {
-            const isMyPhaseNS = (dir === 'N' || dir === 'S');
-            const centerOccupants = spatialGrid.query(intObj.x, intObj.y, stopLineDist * 0.85);
-            for (const occupant of centerOccupants) {
-              if (occupant.id === this.id || !occupant.alive) continue;
-              // Opposing traffic on the same corridor (NS or EW) is NOT cross-traffic!
-              const occDir = occupant._getDirection();
-              const isOccPhaseNS = (occDir === 'N' || occDir === 'S');
-              // Only hold if an actual cross-phase vehicle is clearing or blocking the box
-              if (isMyPhaseNS !== isOccPhaseNS && occupant.speed < 4.0) {
-                stopAtIntersection = true;
-                break;
-              }
-            }
-          }
-
-          if (stopAtIntersection) {
-            // Vehicle smoothly comes to rest behind the stop line
             intersectionGap = Math.max(0.5, distToStopLine - (this.length / 2));
+            // Hold vehicle firmly stopped when at stop line, preventing speed creeping
+            if (distToStopLine <= 3 * CANVAS_SCALE && this.speed < 4.0 * CANVAS_SCALE) {
+              this.speed = 0;
+            }
           }
-        } else {
-          // Vehicle is INSIDE the intersection past the stop line.
-          // NEVER STOP! Accelerate through with right-of-way to clear the box.
-          stopAtIntersection = false;
+        } else if (!stopAtIntersection && distToStopLine > 0 && distToStopLine < 30 * CANVAS_SCALE) {
+          // Yellow Box Rule ("Do Not Block The Box"):
+          // Even on GREEN, check if an intersecting cross-traffic vehicle is clearing or blocking the box
+          const isMyPhaseNS = (dir === 'N' || dir === 'S');
+          const centerOccupants = spatialGrid.query(intObj.x, intObj.y, stopLineDist * 0.85);
+          for (const occupant of centerOccupants) {
+            if (occupant.id === this.id || !occupant.alive) continue;
+            const occDir = occupant._getDirection();
+            const isOccPhaseNS = (occDir === 'N' || occDir === 'S');
+            if (isMyPhaseNS !== isOccPhaseNS && occupant.speed < 4.0) {
+              stopAtIntersection = true;
+              intersectionGap = Math.max(0.5, distToStopLine - (this.length / 2));
+              break;
+            }
+          }
         }
       }
     }
@@ -523,6 +478,7 @@ export class Vehicle {
         this.segmentProgress = 0;
         this.currentWaitTime = 0;
         this.waitTime = 0;
+        this.clearingJunction = false;
         this.routeIndex++;
         
         // Track throughput across intersections

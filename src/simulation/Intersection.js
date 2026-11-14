@@ -4,13 +4,14 @@ import { TrafficLight } from './TrafficLight.js';
  * Intersection — A node in the city graph with traffic signal control
  */
 export class Intersection {
-  constructor(id, x, y, zone = 'residential', layer = 0) {
+  constructor(id, x, y, zone = 'residential', layer = 0, isSignalized = true) {
     this.id = id;
     this.x = x;
     this.y = y;
     this.zone = zone;
     this.layer = layer || 0;
-    this.trafficLight = new TrafficLight();
+    this.isSignalized = isSignalized;
+    this.trafficLight = isSignalized ? new TrafficLight() : null;
 
     // Queue counts per direction
     this.queues = { N: 0, S: 0, E: 0, W: 0 };
@@ -30,7 +31,7 @@ export class Intersection {
     this.policeOverrideTimer = 0;
     // Callback for green phase tracking (set externally to decouple from React)
     this.onGreenPhaseEnd = null;
-    this.lastObservedPhase = this.trafficLight.currentPhase;
+    this.lastObservedPhase = this.trafficLight ? this.trafficLight.currentPhase : 'FREE_FLOW';
     
     // Accumulators for AI throughput tracking
     this.vehiclesPassedAccumulatedController = 0;
@@ -38,7 +39,17 @@ export class Intersection {
     this.vehiclesPassedThisGreenPhase = 0;
   }
 
+  getColorNS() {
+    return this.trafficLight ? this.trafficLight.getColorNS() : 'GREEN';
+  }
+
+  getColorEW() {
+    return this.trafficLight ? this.trafficLight.getColorEW() : 'GREEN';
+  }
+
   update(dt) {
+    if (!this.isSignalized || !this.trafficLight) return;
+
     if (this.policeActive) {
       this.policeOverrideTimer += dt;
       // Traffic police dynamically manages and alternates corridors (max 15s per phase)
@@ -105,7 +116,7 @@ export class Intersection {
     this.aiPulseTimer = 1.1; // 300ms in + 800ms out
     this.lastAIAction = action;
     this.phaseHistory.push({
-      phase: this.trafficLight.currentPhase,
+      phase: this.trafficLight ? this.trafficLight.currentPhase : 'FREE_FLOW',
       action,
       time: Date.now()
     });

@@ -458,6 +458,7 @@ export class Renderer {
     const bounds = this.getViewportBounds(50);
 
     for (const [, int] of intersections) {
+      if (!int.isSignalized || !int.trafficLight) continue;
       const intLayer = int.layer || 0;
       if (layerFilter === 'surface' && intLayer > 0) continue;
       if (layerFilter === 'flyover' && intLayer <= 0) continue;

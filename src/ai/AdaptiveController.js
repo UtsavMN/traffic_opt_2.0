@@ -46,6 +46,7 @@ export class AdaptiveController {
   update(dt, engine) {
     // Decrement simulation-time based cooldowns per intersection
     for (const [, int] of engine.intersections) {
+      if (!int.isSignalized || !int.trafficLight) continue;
       if (int.aiCooldown === undefined) int.aiCooldown = 0;
       if (int.aiCooldown > 0) int.aiCooldown -= dt;
     }
@@ -59,6 +60,7 @@ export class AdaptiveController {
     this.mode = currentMode;
 
     for (const [id, int] of engine.intersections) {
+      if (!int.isSignalized || !int.trafficLight) continue;
       if (int.aiCooldown > 0) continue;
 
       // Ensure physical traffic light has balanced realistic cycle limits (15s to 25s).

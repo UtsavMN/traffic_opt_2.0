@@ -36,7 +36,7 @@ export default function Sidebar({
   const timeLocked = useSimStore(s => s.timeLocked);
   const overlays = useUIStore(s => s.overlays);
 
-  const [spawnVal, setSpawnVal] = useState(4.8);
+  const [spawnVal, setSpawnVal] = useState(3.5);
   const [selectedScenario, setSelectedScenario] = useState('bengaluru_central');
   const [activeView, setActiveView] = useState('metrics'); // 'metrics' | 'bangalore'
 

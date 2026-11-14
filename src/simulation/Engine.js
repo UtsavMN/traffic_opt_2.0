@@ -21,8 +21,8 @@ export class Engine {
     this.canvas = canvas;
     this.renderer = new Renderer(canvas);
     this.spatialGrid = new SpatialGrid(50);
-    this.vehiclePool = new VehiclePool(3500);
-    this.maxVehicles = 2800;
+    this.vehiclePool = new VehiclePool(2000);
+    this.maxVehicles = 1200;
 
     // City graph (set by loadCity)
     this.graph = null;
@@ -50,7 +50,7 @@ export class Engine {
     this.running = false;
     this.paused = false;
     this.simSpeed = 1;
-    this.spawnRate = 4.8; // vehicles/sec base (calibrated for 2800+ citywide commuter density)
+    this.spawnRate = 3.5; // vehicles/sec base (calibrated for 1200+ citywide commuter density)
     this.spawnTimer = 0;
     this.pedSpawnTimer = 0;
     this.cyclistSpawnTimer = 0;
@@ -174,20 +174,60 @@ export class Engine {
     };
     this._pfWorker.postMessage({ type: 'INIT', graph: serializedGraph });
 
+    // Authentic Bengaluru Signalization (IRC:93 Signal Warrants):
+    // Only signalize true major intersections on Arterial and Commercial Main Roads.
+    // Minor residential alleys, local cross-streets, and close-together T-junctions
+    // are unsignalized yield / free-flow turns to prevent artificial gridlock and visual clutter.
+    const candidates = [];
     for (const [id, node] of graph.nodes) {
       const isElevated = (node.layer || 0) > 0 || node.isBridge;
+      if (isElevated) continue;
+
       const neighbors = graph.getNeighbors(id);
       const allNeighbors = new Set(neighbors);
       for (const [, edge] of graph.edges) {
         if (edge.to === id) allNeighbors.add(edge.from);
       }
-      
-      // True signalized junction criteria:
-      // 1. Surface level (never on elevated flyovers, bridges, or underpass troughs)
-      // 2. Multi-way crossroads or T-junctions (allNeighbors.size >= 3)
-      // Continuous highway corridors, mid-block curves, dead-ends, and flyovers are NOT signalized.
-      const isSignalized = !isElevated && allNeighbors.size >= 3;
+      if (allNeighbors.size < 3) continue;
 
+      let isArterial = false, isMain = false;
+      let hasNamedRoad = false;
+      for (const nid of allNeighbors) {
+        const e = graph.getEdge(id, nid) || graph.getEdge(nid, id);
+        if (e) {
+          if (e.roadTier === 'arterial') isArterial = true;
+          if (e.roadTier === 'main') isMain = true;
+          if (e.name) hasNamedRoad = true;
+        }
+      }
+
+      // Pure residential/gully crosses never have signals
+      if (!isArterial && !isMain && allNeighbors.size < 4) continue;
+
+      let score = allNeighbors.size * 10 + (isArterial ? 50 : 0) + (isMain ? 25 : 0) + (hasNamedRoad ? 15 : 0);
+      candidates.push({ id, node, score, x: node.x, y: node.y });
+    }
+
+    candidates.sort((a, b) => b.score - a.score);
+
+    // Minimum 130px (~150m) corridor spacing between traffic signals
+    const signalizedIds = new Set();
+    const minSpacingSq = 130 * 130;
+    for (const c of candidates) {
+      let tooClose = false;
+      for (const sId of signalizedIds) {
+        const sNode = graph.nodes.get(sId);
+        const dx = c.x - sNode.x, dy = c.y - sNode.y;
+        if (dx * dx + dy * dy < minSpacingSq) {
+          tooClose = true;
+          break;
+        }
+      }
+      if (!tooClose) signalizedIds.add(c.id);
+    }
+
+    for (const [id, node] of graph.nodes) {
+      const isSignalized = signalizedIds.has(id);
       const intersection = new Intersection(id, node.x, node.y, node.zone, node.layer || 0, isSignalized);
       // Wire up green phase callback (decoupled from React in Intersection.js)
       intersection.onGreenPhaseEnd = (hadVehicles) => {
@@ -310,16 +350,10 @@ export class Engine {
     this.completedThisStep = 0;
     // Only run simulation update logic if not paused
     if (!this.paused) {
-      // Sub-step physics so at 2x/4x speed vehicles don't skip stop lines or glitch
-      // Ensures each physics sub-step dt is <= 33ms (~30Hz resolution)
-      const maxSubStepDt = 0.033;
-      const subSteps = Math.max(1, Math.min(6, Math.ceil(totalDt / maxSubStepDt)));
-      const subDt = totalDt / subSteps;
-
-      for (let s = 0; s < subSteps; s++) {
-        this._update(subDt);
-        this._simTime += subDt;
-      }
+      // Fluid single-pass physics with clamped frame delta (prevents frame drops at 2x/4x speed)
+      const clampedDt = Math.min(0.066, totalDt);
+      this._update(clampedDt);
+      this._simTime += clampedDt;
     }
     
     // Always render once per animation frame so panning/zooming remains fluid at 60 FPS
@@ -480,22 +514,22 @@ export class Engine {
 
   async _spawnTick(dt) {
     this._spawnTimer = (this._spawnTimer || 0) + dt;
-    const baseRate = this.spawnRate || 4.8;
+    const baseRate = this.spawnRate || 3.5;
     const currentCount = this.vehicles.length;
-    const maxCapacity = this.maxVehicles || 2800;
+    const maxCapacity = this.maxVehicles || 1200;
     
     if (currentCount >= maxCapacity) return;
 
     // Scale spawn rate dynamically based on current population filling
     const fillRatio = currentCount / maxCapacity;
-    const fillBoost = fillRatio < 0.35 ? 6.0 : (fillRatio < 0.70 ? 4.0 : (fillRatio < 0.90 ? 2.5 : 1.8));
+    const fillBoost = fillRatio < 0.40 ? 4.0 : (fillRatio < 0.75 ? 2.5 : (fillRatio < 0.95 ? 1.5 : 1.0));
     const effectiveRate = baseRate * this.timeOfDay.spawnMultiplier * fillBoost;
     
     if (this._spawnTimer < 1.0 / effectiveRate) return;
     this._spawnTimer = 0;
 
-    // Batch spawn 2 to 6 vehicles depending on current citywide density
-    const batchSize = currentCount < 800 ? 6 : (currentCount < 1800 ? 4 : (currentCount < 2500 ? 3 : 2));
+    // Batch spawn 1 to 3 vehicles depending on current citywide density
+    const batchSize = currentCount < 400 ? 3 : (currentCount < 900 ? 2 : 1);
     for (let b = 0; b < batchSize; b++) {
       if (this.vehicles.length >= maxCapacity) break;
       await this._spawnOneVehicle();

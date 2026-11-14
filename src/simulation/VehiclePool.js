@@ -5,7 +5,7 @@ import { Vehicle } from './Vehicle.js';
  * Each Engine instance creates its own pool, avoiding shared module state.
  */
 export class VehiclePool {
-  constructor(capacity = 3500) {
+  constructor(capacity = 2000) {
     this._pool = [];
     this._capacity = capacity;
     this._totalCreated = 0;

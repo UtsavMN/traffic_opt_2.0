@@ -7,6 +7,10 @@ export function setCanvasScale(scale) {
   CANVAS_SCALE = scale;
 }
 
+export function getCanvasScale() {
+  return CANVAS_SCALE || 1;
+}
+
 export const LANE_WIDTH_PX = () => REAL_LANE_WIDTH_M * CANVAS_SCALE;
 
 // Indian Road Hierarchy Standards (IRC:73 / IRC:86 / Bengaluru Urban Mobility)

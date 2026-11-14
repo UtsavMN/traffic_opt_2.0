@@ -35,7 +35,7 @@ export class StateEncoder {
     const pW = Math.max(0, est.W - avgDownstream);
 
     // Phase-invariant local state representation
-    const currentIsNS = tl.currentPhase.includes('NS');
+    const currentIsNS = tl.currentPhase ? tl.currentPhase.includes('NS') : true;
     const activePressure = currentIsNS ? (pN + pS) : (pE + pW);
     const opposingPressure = currentIsNS ? (pE + pW) : (pN + pS);
     
@@ -53,7 +53,7 @@ export class StateEncoder {
       const ni = engine.intersections.get(nId);
       if (!ni || !ni.isSignalized || !ni.trafficLight) continue;
       const nEst = sensorRealism ? sensorRealism.getEstimatedQueues(nId) : ni.queues;
-      const nIsNS = ni.trafficLight.currentPhase.includes('NS');
+      const nIsNS = ni.trafficLight.currentPhase ? ni.trafficLight.currentPhase.includes('NS') : true;
       
       const nQNS = Math.max(0, nEst.N + nEst.S - avgDownstream);
       const nQEW = Math.max(0, nEst.E + nEst.W - avgDownstream);

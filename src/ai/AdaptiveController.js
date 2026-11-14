@@ -130,7 +130,7 @@ export class AdaptiveController {
     }
 
     const totalQueue = int.getTotalQueue();
-    const currentIsNS = int.trafficLight.currentPhase.includes('NS');
+    const currentIsNS = int.trafficLight ? int.trafficLight.currentPhase.includes('NS') : true;
     const currentQueue = currentIsNS ? int.getQueueNS() : int.getQueueEW();
     const opposingQueue = currentIsNS ? int.getQueueEW() : int.getQueueNS();
 
@@ -169,6 +169,7 @@ export class AdaptiveController {
 
   _evaluate(int, engine) {
     const tl = int.trafficLight;
+    if (!tl) return null;
     const nsQ = int.getQueueNS();
     const ewQ = int.getQueueEW();
     const timeInPhase = tl.timeInPhase;

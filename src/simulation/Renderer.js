@@ -1,6 +1,6 @@
 import { SIGNAL_COLORS } from './TrafficLight.js';
 import { Camera } from './Camera.js';
-import { LANE_WIDTH_PX, REAL_LANE_WIDTH_M, ROAD_TIER_CONFIG, getLaneWidthM, CANVAS_SCALE } from '../constants.js';
+import { LANE_WIDTH_PX, REAL_LANE_WIDTH_M, ROAD_TIER_CONFIG, getLaneWidthM, CANVAS_SCALE, getCanvasScale } from '../constants.js';
 
 /**
  * Renderer — All canvas draw calls, layered back-to-front
@@ -18,6 +18,15 @@ export class Renderer {
       sensorCones: false, // Visual overlay for virtual sensors
     };
     this.roadCaches = new Map();
+
+    // Offscreen caching for surface roads (eliminates 62ms/frame stroke overhead)
+    this._surfaceRoadCanvas = null;
+    this._surfaceRoadCtx = null;
+    this._surfaceRoadCacheKey = null;
+  }
+
+  invalidateRoadCache() {
+    this._surfaceRoadCacheKey = null;
   }
 
   resize() {
@@ -34,6 +43,7 @@ export class Renderer {
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.width = newW;
     this.height = newH;
+    this.invalidateRoadCache();
   }
 
   clear(skyColor) {
@@ -107,7 +117,6 @@ export class Renderer {
   }
 
   // ── Layer 2: Roads ───────────────────────────────────
-  // ── Layer 2: Roads ───────────────────────────────────
   drawRoads(graph, layerFilter = 'all') {
     if (layerFilter === 'all') {
       this.drawRoads(graph, 'surface');
@@ -115,11 +124,41 @@ export class Renderer {
       return;
     }
 
-    const ctx = this.ctx;
+    const isFlyoverPass = (layerFilter === 'flyover');
+
+    if (!isFlyoverPass) {
+      const cacheKey = `${this.camera.x.toFixed(1)}_${this.camera.y.toFixed(1)}_${this.camera.zoom.toFixed(4)}_${this.width}_${this.height}`;
+      if (this._surfaceRoadCacheKey === cacheKey && this._surfaceRoadCanvas) {
+        this.ctx.drawImage(this._surfaceRoadCanvas, 0, 0);
+        return;
+      }
+
+      if (!this._surfaceRoadCanvas) {
+        this._surfaceRoadCanvas = document.createElement('canvas');
+      }
+      if (this._surfaceRoadCanvas.width !== this.canvas.width || this._surfaceRoadCanvas.height !== this.canvas.height) {
+        this._surfaceRoadCanvas.width = this.canvas.width;
+        this._surfaceRoadCanvas.height = this.canvas.height;
+      }
+      this._surfaceRoadCtx = this._surfaceRoadCanvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      this._surfaceRoadCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      this._surfaceRoadCtx.clearRect(0, 0, this.width, this.height);
+
+      this._renderRoadsToContext(this._surfaceRoadCtx, graph, false);
+      this._surfaceRoadCacheKey = cacheKey;
+      this.ctx.drawImage(this._surfaceRoadCanvas, 0, 0);
+      return;
+    }
+
+    // Flyover pass renders directly onto main ctx
+    this._renderRoadsToContext(this.ctx, graph, true);
+  }
+
+  _renderRoadsToContext(ctx, graph, isFlyoverPass) {
     const detail = this.camera.getDetail();
     const bounds = this.getViewportBounds(200);
     const z = this.camera.zoom;
-    const isFlyoverPass = (layerFilter === 'flyover');
 
     // Realistic Indian Road & Highway Asphalt Surface Shades
     const colors = { 
@@ -147,27 +186,44 @@ export class Renderer {
       }
     };
 
-    // Helper: Draw parallel offset path (offset in canvas units / pixels)
+    // Helper: Draw parallel offset path with robust normal computation
     const drawOffsetPath = (geometry, offset) => {
+      if (!geometry || geometry.length < 2) return;
+      // Filter out duplicate or degenerate vertices (< 0.5px apart)
+      const cleanPts = [geometry[0]];
+      for (let i = 1; i < geometry.length; i++) {
+        const last = cleanPts[cleanPts.length - 1];
+        if (Math.hypot(geometry[i].x - last.x, geometry[i].y - last.y) > 0.5) {
+          cleanPts.push(geometry[i]);
+        }
+      }
+      if (cleanPts.length < 2) return;
+
       ctx.beginPath();
-      for (let i = 0; i < geometry.length; i++) {
-        const pt = geometry[i];
+      for (let i = 0; i < cleanPts.length; i++) {
+        const pt = cleanPts[i];
         let nx = 0, ny = 0;
         if (i === 0) {
-          const next = geometry[1] || geometry[0];
+          const next = cleanPts[1];
           const dx = next.x - pt.x, dy = next.y - pt.y;
           const len = Math.hypot(dx, dy) || 1;
           nx = -dy / len; ny = dx / len;
-        } else if (i === geometry.length - 1) {
-          const prev = geometry[i-1] || geometry[0];
+        } else if (i === cleanPts.length - 1) {
+          const prev = cleanPts[i - 1];
           const dx = pt.x - prev.x, dy = pt.y - prev.y;
           const len = Math.hypot(dx, dy) || 1;
           nx = -dy / len; ny = dx / len;
         } else {
-          const prev = geometry[i-1], next = geometry[i+1];
+          const prev = cleanPts[i - 1], next = cleanPts[i + 1];
           const dx = next.x - prev.x, dy = next.y - prev.y;
-          const len = Math.hypot(dx, dy) || 1;
-          nx = -dy / len; ny = dx / len;
+          const len = Math.hypot(dx, dy);
+          if (len && len > 0.01) {
+            nx = -dy / len; ny = dx / len;
+          } else {
+            const pdx = pt.x - prev.x, pdy = pt.y - prev.y;
+            const plen = Math.hypot(pdx, pdy) || 1;
+            nx = -pdy / plen; ny = pdx / plen;
+          }
         }
         const s = this.worldToScreen(pt.x + nx * offset, pt.y + ny * offset);
         if (i === 0) ctx.moveTo(s.x, s.y);
@@ -183,21 +239,18 @@ export class Renderer {
       const oppLanes = isTwoWay ? (oppEdge.lanes || 1) : 0;
       const totalLanes = fwdLanes + oppLanes;
       const laneWidthM = edge.laneWidthM || getLaneWidthM(edge.type);
-      const lw = laneWidthM * CANVAS_SCALE;
+      const scale = (typeof CANVAS_SCALE !== 'undefined' ? CANVAS_SCALE : (typeof getCanvasScale === 'function' ? getCanvasScale() : 1)) || 1;
+      const lw = laneWidthM * scale;
       const roadTier = edge.roadTier || (edge.type === 'primary' || edge.type === 'trunk' || edge.type === 'motorway' ? 'arterial' : (edge.type === 'secondary' ? 'main' : (edge.type === 'tertiary' ? 'collector' : 'cross')));
       const divider = edge.divider || (roadTier === 'arterial' ? 'double_yellow' : (roadTier === 'main' ? 'dashed_white' : 'none'));
       const tierConfig = ROAD_TIER_CONFIG[edge.type] || ROAD_TIER_CONFIG.default;
       return { isTwoWay, oppEdge, fwdLanes, oppLanes, totalLanes, laneWidthM, lw, roadTier, divider, tierConfig };
     };
 
-    // Pass 0 (Flyover Only): Realistic 3D Drop Shadow cast onto surface below
+    // Pass 0 (Flyover Only): Clean 3D Drop Shadow cast onto surface below (zero-blur for 60 FPS)
     if (isFlyoverPass) {
       ctx.save();
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.70)';
-      ctx.shadowBlur = 12 * z;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 7 * z;
-      ctx.strokeStyle = '#141824';
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
       ctx.lineCap = 'round';
 
       for (const [, edge] of graph.edges) {
@@ -214,8 +267,16 @@ export class Renderer {
         else if (detail === 'district') baseW = Math.max(baseW, 3.8 / z);
         const w = baseW * z;
 
-        ctx.lineWidth = w + 4 * Math.max(1, z * 0.4);
-        drawEdgePath(edge.geometry);
+        ctx.lineWidth = w + 3 * Math.max(1, z * 0.3);
+        // Draw path offset downward to cast physical 3D shadow
+        ctx.beginPath();
+        const shadowOffset = 5 * Math.max(1, z * 0.5);
+        for (let i = 0; i < edge.geometry.length; i++) {
+          const pt = edge.geometry[i];
+          const s = this.worldToScreen(pt.x, pt.y);
+          if (i === 0) ctx.moveTo(s.x, s.y + shadowOffset);
+          else ctx.lineTo(s.x, s.y + shadowOffset);
+        }
         ctx.stroke();
       }
       ctx.restore();
@@ -362,16 +423,19 @@ export class Renderer {
             ctx.stroke();
           } else if (divider === 'dashed_white') {
             // Commercial Main Roads & Collectors: single dashed white centerline
+            ctx.lineCap = 'butt';
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
             ctx.lineWidth = Math.max(0.8, 0.10 * z);
             ctx.setLineDash([6 * z, 8 * z]);
             drawEdgePath(edge.geometry);
             ctx.stroke();
             ctx.setLineDash([]);
+            ctx.lineCap = 'round';
           }
 
           // 2. Dashed white lane dividers in Forward Carriageway (left of centerline)
-          if (fwdLanes > 1) {
+          if (fwdLanes > 1 && edge.length > 20) {
+            ctx.lineCap = 'butt';
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
             ctx.lineWidth = Math.max(0.6, 0.08 * z);
             ctx.setLineDash([5 * z, 7 * z]);
@@ -381,10 +445,12 @@ export class Renderer {
               ctx.stroke();
             }
             ctx.setLineDash([]);
+            ctx.lineCap = 'round';
           }
 
           // 3. Dashed white lane dividers in Opposing Carriageway (right of centerline)
-          if (oppLanes > 1) {
+          if (oppLanes > 1 && edge.length > 20) {
+            ctx.lineCap = 'butt';
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
             ctx.lineWidth = Math.max(0.6, 0.08 * z);
             ctx.setLineDash([5 * z, 7 * z]);
@@ -394,10 +460,12 @@ export class Renderer {
               ctx.stroke();
             }
             ctx.setLineDash([]);
+            ctx.lineCap = 'round';
           }
         } else {
           // One-way road: dashed white dividers across all lanes
-          if (fwdLanes > 1) {
+          if (fwdLanes > 1 && edge.length > 20) {
+            ctx.lineCap = 'butt';
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
             ctx.lineWidth = Math.max(0.6, 0.08 * z);
             ctx.setLineDash([5 * z, 7 * z]);
@@ -407,6 +475,7 @@ export class Renderer {
               ctx.stroke();
             }
             ctx.setLineDash([]);
+            ctx.lineCap = 'round';
           }
         }
       }
@@ -479,48 +548,36 @@ export class Renderer {
       ctx.translate(s.x, s.y);
 
       // Determine the active color of the intersection
-      const isGreen = tl.currentPhase.includes('GREEN');
-      const isYellow = tl.currentPhase.includes('YELLOW');
+      const isGreen = tl.currentPhase ? tl.currentPhase.includes('GREEN') : false;
+      const isYellow = tl.currentPhase ? tl.currentPhase.includes('YELLOW') : false;
       const hexColor = isGreen ? '#00E87A' : (isYellow ? '#FFB400' : '#FF3B5C');
 
-      if (z > 2.5) {
-        // Draw 4 signal heads facing approaches (offset dynamically to sit on the side of the road, clear of lanes)
-        const dist = patchRadius + 2 * z;
-        const sideOffset = -(roadWidth * 0.5 + 4) * z;
-        
-        const drawSignal = (color, angle) => {
-          ctx.save();
-          ctx.rotate(angle);
-          ctx.translate(sideOffset, -dist);
-          
-          // Signal box
-          ctx.fillStyle = '#1A1A1A';
-          ctx.fillRect(-1.2 * z, -3.5 * z, 2.4 * z, 7 * z);
-          
-          // Lights
-          ctx.fillStyle = color === 'RED' ? '#FF3B5C' : '#330000';
-          ctx.beginPath(); ctx.arc(0, -2.2 * z, 0.8 * z, 0, Math.PI*2); ctx.fill();
-          ctx.fillStyle = color === 'YELLOW' ? '#FFB400' : '#333300';
-          ctx.beginPath(); ctx.arc(0, 0, 0.8 * z, 0, Math.PI*2); ctx.fill();
-          ctx.fillStyle = color === 'GREEN' ? '#00E87A' : '#003300';
-          ctx.beginPath(); ctx.arc(0, 2.2 * z, 0.8 * z, 0, Math.PI*2); ctx.fill();
-          
-          ctx.restore();
-        };
+      // High-Tech Clean Signal Beacon:
+      // Sleek luminous circular core + outer pulsing ring showing signal phase
+      const beaconRadius = Math.min(5.0, Math.max(2.2, 2.5 * z));
+      ctx.fillStyle = hexColor;
+      ctx.beginPath();
+      ctx.arc(0, 0, beaconRadius, 0, Math.PI * 2);
+      ctx.fill();
 
-        const cNS = tl.getColorNS();
-        const cEW = tl.getColorEW();
-        
-        drawSignal(cNS, 0); // North facing
-        drawSignal(cNS, Math.PI); // South facing
-        drawSignal(cEW, Math.PI/2); // East facing
-        drawSignal(cEW, -Math.PI/2); // West facing
-      } else {
-        // Draw a clean, hollow ring for the intersection so it doesn't block the road view
-        ctx.strokeStyle = hexColor;
-        ctx.lineWidth = 1.5;
+      // Outer phase indicator ring
+      ctx.strokeStyle = hexColor;
+      ctx.lineWidth = Math.min(1.6, Math.max(0.8, 0.9 * z));
+      ctx.beginPath();
+      ctx.arc(0, 0, beaconRadius * 1.6, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Phase direction flow line on street zoom (shows which corridor has green right-of-way)
+      if (z > 2.0 && isGreen && tl.currentPhase) {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.90)';
+        ctx.lineWidth = Math.min(1.5, 0.8 * z);
+        const armLen = beaconRadius + 3.0 * z;
         ctx.beginPath();
-        ctx.arc(0, 0, 2.5 * this.camera.zoom, 0, Math.PI * 2);
+        if (tl.currentPhase.includes('NS')) {
+          ctx.moveTo(0, -armLen); ctx.lineTo(0, armLen);
+        } else {
+          ctx.moveTo(-armLen, 0); ctx.lineTo(armLen, 0);
+        }
         ctx.stroke();
       }
 
@@ -690,9 +747,8 @@ export class Renderer {
         ctx.rotate(v.heading);
         ctx.globalAlpha = v.arrivalAlpha !== undefined ? v.arrivalAlpha : 1.0;
         if ((v.layer || 0) > 0) {
-          ctx.shadowColor = 'rgba(0,0,0,0.55)';
-          ctx.shadowBlur = 3 * z;
-          ctx.shadowOffsetY = 2 * z;
+          ctx.fillStyle = 'rgba(0,0,0,0.35)';
+          ctx.fillRect(-l, -w + 2 * z, l * 2, w * 2);
         }
         ctx.fillStyle = v.type === 'emergency' ? '#FF3B5C' : v.color;
         const l = v.length * z * 0.5 * visualScale;
@@ -708,14 +764,16 @@ export class Renderer {
       ctx.translate(s.x, s.y);
       ctx.rotate(v.heading);
       ctx.globalAlpha = v.arrivalAlpha !== undefined ? v.arrivalAlpha : 1.0;
-      if ((v.layer || 0) > 0) {
-        ctx.shadowColor = 'rgba(0,0,0,0.55)';
-        ctx.shadowBlur = 4 * z;
-        ctx.shadowOffsetY = 2.5 * z;
-      }
 
       const l = v.length * z * 0.5 * visualScale;
       const w = v.width * z * 0.5 * visualScale;
+
+      if ((v.layer || 0) > 0) {
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.beginPath();
+        ctx.roundRect(-l, -w + 2.5 * z, l * 2, w * 2, Math.max(1, 1.5 * z));
+        ctx.fill();
+      }
 
       // Base body
       ctx.beginPath();

@@ -9,7 +9,7 @@ const AREAS = {
     minLng: 77.5932, maxLng: 77.6351,
     minLat: 12.9872, maxLat: 13.0204,
     camera: { x: 2000, y: 2000, zoom: 0.8 },
-    spawnRate: 4.8,
+    spawnRate: 3.5,
   },
   frazer_town: {
     name: 'Frazer Town & Coles Road Hub',
@@ -17,7 +17,7 @@ const AREAS = {
     minLng: 77.6060, maxLng: 77.6250,
     minLat: 12.9930, maxLat: 13.0045,
     camera: { x: 2000, y: 2000, zoom: 1.2 },
-    spawnRate: 4.5,
+    spawnRate: 3.2,
   },
   lingarajapuram: {
     name: 'Lingarajapuram - Hennur Flyover Corridor',
@@ -25,7 +25,7 @@ const AREAS = {
     minLng: 77.6160, maxLng: 77.6345,
     minLat: 13.0020, maxLat: 13.0180,
     camera: { x: 2000, y: 2000, zoom: 1.15 },
-    spawnRate: 5.0,
+    spawnRate: 3.8,
   },
   cantonment: {
     name: 'Cantonment & Shivaji Nagar Gateway',
@@ -33,7 +33,7 @@ const AREAS = {
     minLng: 77.5932, maxLng: 77.6110,
     minLat: 12.9872, maxLat: 13.0015,
     camera: { x: 2000, y: 2000, zoom: 1.2 },
-    spawnRate: 4.6,
+    spawnRate: 3.4,
   },
   benson_town: {
     name: 'Benson Town & Richards Town Layouts',
@@ -41,7 +41,7 @@ const AREAS = {
     minLng: 77.5980, maxLng: 77.6210,
     minLat: 13.0010, maxLat: 13.0125,
     camera: { x: 2000, y: 2000, zoom: 1.2 },
-    spawnRate: 4.2,
+    spawnRate: 3.0,
   }
 };
 

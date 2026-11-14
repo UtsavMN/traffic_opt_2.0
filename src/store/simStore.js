@@ -13,7 +13,7 @@ export const useSimStore = create((set) => ({
   timeLocked: false,
   weather: 'clear',
   simSpeed: 1,
-  spawnRate: 4.8,
+  spawnRate: 3.5,
   scenario: 'generic_grid',
   running: true,
   intersectionCount: 0,

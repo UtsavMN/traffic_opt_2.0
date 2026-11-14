@@ -409,48 +409,6 @@ export class Renderer {
             ctx.setLineDash([]);
           }
         }
-
-        // 4. Approach Stop Lines
-        if (edge.geometry.length >= 2 && !isElevated) {
-          const ptEnd = edge.geometry[edge.geometry.length - 1];
-          const ptPrev = edge.geometry[edge.geometry.length - 2];
-          const sEnd = this.worldToScreen(ptEnd.x, ptEnd.y);
-          const sPrev = this.worldToScreen(ptPrev.x, ptPrev.y);
-
-          const dx = sEnd.x - sPrev.x, dy = sEnd.y - sPrev.y;
-          const len = Math.hypot(dx, dy) || 1;
-          const dirX = dx / len, dirY = dy / len;
-          const perpX = -dirY, perpY = dirX; // points to RIGHT
-
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-          ctx.lineWidth = Math.max(2.0, 0.4 * z);
-          const stopOffset = 15 * z;
-
-          // Forward approach stop line (on the LEFT of centerline for Left-Hand Traffic)
-          const fwdCarriagewayW = fwdLanes * lw * z;
-          ctx.beginPath();
-          ctx.moveTo(sEnd.x - dirX * stopOffset, sEnd.y - dirY * stopOffset);
-          ctx.lineTo(sEnd.x - dirX * stopOffset - perpX * fwdCarriagewayW, sEnd.y - dirY * stopOffset - perpY * fwdCarriagewayW);
-          ctx.stroke();
-
-          // Opposing approach stop line at start of segment
-          if (isTwoWay && oppLanes > 0) {
-            const ptStart = edge.geometry[0];
-            const ptNext = edge.geometry[1];
-            const sStart = this.worldToScreen(ptStart.x, ptStart.y);
-            const sNext = this.worldToScreen(ptNext.x, ptNext.y);
-            const dxS = sNext.x - sStart.x, dyS = sNext.y - sStart.y;
-            const lenS = Math.hypot(dxS, dyS) || 1;
-            const dirXS = dxS / lenS, dirYS = dyS / lenS;
-            const perpXS = -dirYS, perpYS = dirXS;
-
-            const oppCarriagewayW = oppLanes * lw * z;
-            ctx.beginPath();
-            ctx.moveTo(sStart.x + dirXS * stopOffset, sStart.y + dirYS * stopOffset);
-            ctx.lineTo(sStart.x + dirXS * stopOffset + perpXS * oppCarriagewayW, sStart.y + dirYS * stopOffset + perpYS * oppCarriagewayW);
-            ctx.stroke();
-          }
-        }
       }
 
       // Street Name / Flyover Typography on Zoom
@@ -693,11 +651,13 @@ export class Renderer {
         if (!shouldDraw(v)) continue;
         if (!this.isInsideViewport(v.pos.x, v.pos.y, bounds)) continue;
         const s = this.worldToScreen(v.pos.x, v.pos.y);
+        ctx.globalAlpha = v.arrivalAlpha !== undefined ? v.arrivalAlpha : 1.0;
         ctx.fillStyle = v.type === 'emergency' ? '#FF3B5C' : v.color;
         ctx.beginPath();
         ctx.arc(s.x, s.y, 2.2, 0, Math.PI * 2);
         ctx.fill();
       }
+      ctx.globalAlpha = 1.0;
       return;
     }
 
@@ -710,10 +670,12 @@ export class Renderer {
 
       // District zoom: simple 3.5px colored dots
       if (detail === 'district') {
+        ctx.globalAlpha = v.arrivalAlpha !== undefined ? v.arrivalAlpha : 1.0;
         ctx.fillStyle = v.type === 'emergency' ? '#FF3B5C' : v.color;
         ctx.beginPath();
         ctx.arc(s.x, s.y, 3.5, 0, Math.PI * 2);
         ctx.fill();
+        ctx.globalAlpha = 1.0;
         continue;
       }
 
@@ -725,6 +687,7 @@ export class Renderer {
         ctx.save();
         ctx.translate(s.x, s.y);
         ctx.rotate(v.heading);
+        ctx.globalAlpha = v.arrivalAlpha !== undefined ? v.arrivalAlpha : 1.0;
         if ((v.layer || 0) > 0) {
           ctx.shadowColor = 'rgba(0,0,0,0.55)';
           ctx.shadowBlur = 3 * z;
@@ -743,6 +706,7 @@ export class Renderer {
       ctx.save();
       ctx.translate(s.x, s.y);
       ctx.rotate(v.heading);
+      ctx.globalAlpha = v.arrivalAlpha !== undefined ? v.arrivalAlpha : 1.0;
       if ((v.layer || 0) > 0) {
         ctx.shadowColor = 'rgba(0,0,0,0.55)';
         ctx.shadowBlur = 4 * z;
@@ -858,6 +822,15 @@ export class Renderer {
         ctx.lineTo(l + 60*z, -30*z);
         ctx.lineTo(l + 60*z, 30*z);
         ctx.fill();
+      }
+
+      // Arrival at destination: hazard lights blinking on corners
+      if (v.isArriving && (Date.now() % 350 < 175)) {
+        ctx.fillStyle = '#FFB400';
+        ctx.fillRect(-l, -w, l * 0.18, w * 0.25);
+        ctx.fillRect(-l, w - w * 0.25, l * 0.18, w * 0.25);
+        ctx.fillRect(l - l * 0.18, -w, l * 0.18, w * 0.25);
+        ctx.fillRect(l - l * 0.18, w - w * 0.25, l * 0.18, w * 0.25);
       }
 
       ctx.restore();

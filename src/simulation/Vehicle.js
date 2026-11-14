@@ -75,6 +75,11 @@ export class Vehicle {
     this.alive = true;
     this.inViewport = true; // No more macro/micro split
     this.isOccluded = false; // Hidden when passing beneath flyover deck or through underpass tunnel
+    this.destinationName = (route && route.destinationName) ? route.destinationName : 'Bengaluru Destination';
+    this.originName = (route && route.originName) ? route.originName : 'Bengaluru Origin';
+    this.isArriving = false;
+    this.arrivalAlpha = 1.0;
+    this.hasCompleted = false;
     
     this.currentEdgeId = null;
     this.laneIndex = undefined;
@@ -533,22 +538,37 @@ export class Vehicle {
         }
 
         if (this.routeIndex >= this.route.length - 1) {
-          this._recordTripComplete();
+          this.hasCompleted = true;
           this.alive = false;
+          this._recordTripComplete();
           return;
         }
       }
     }
     
-    // Check destination arrival
+    // Check destination arrival & real-life smooth pull-over / disappearance:
     const finalNode = this.route[this.route.length - 1];
     const finalPos = this.graph.nodes.get(finalNode);
-    if (finalPos && this.routeIndex === this.route.length - 2) {
+    if (finalPos && this.routeIndex >= this.route.length - 2) {
       const dist = Math.hypot(this.pos.x - finalPos.x, this.pos.y - finalPos.y);
-      if (dist < 15) {
-        this._recordTripComplete();
-        this.alive = false;
-        return;
+      // When approaching destination within ~40px (or on final 20% of edge):
+      if (dist < 40 * CANVAS_SCALE || (this.routeIndex === this.route.length - 2 && this.segmentProgress > 0.80)) {
+        this.isArriving = true;
+        this.state = 'arriving';
+        // Smoothly decelerate towards destination parking / curb stop
+        this.speed = Math.max(1.8 * CANVAS_SCALE, this.speed * (1.0 - 2.8 * dt));
+        // Gently pull over towards curb
+        const curbTarget = (this.laneOffset >= 0 ? 3.0 : -3.0) * CANVAS_SCALE;
+        this.laneOffset += (curbTarget - this.laneOffset) * 2.5 * dt;
+        // Smoothly fade out into destination building / parking
+        this.arrivalAlpha = Math.max(0, this.arrivalAlpha - 1.8 * dt);
+        
+        if (this.arrivalAlpha <= 0.05 || dist < 6 * CANVAS_SCALE || this.segmentProgress >= 0.99) {
+          this.hasCompleted = true;
+          this.alive = false;
+          this._recordTripComplete();
+          return;
+        }
       }
     }
     
@@ -581,6 +601,8 @@ export class Vehicle {
         waitTime: this.waitTime,
         travelTime: (performance.now() - (this.spawnTime || 0)) / 1000,
         distance: this.distanceTravelled,
+        destination: this.destinationName,
+        origin: this.originName,
       });
     }
   }

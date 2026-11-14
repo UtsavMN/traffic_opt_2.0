@@ -21,7 +21,8 @@ export class Engine {
     this.canvas = canvas;
     this.renderer = new Renderer(canvas);
     this.spatialGrid = new SpatialGrid(50);
-    this.vehiclePool = new VehiclePool(500);
+    this.vehiclePool = new VehiclePool(1500);
+    this.maxVehicles = 1200;
 
     // City graph (set by loadCity)
     this.graph = null;
@@ -49,7 +50,7 @@ export class Engine {
     this.running = false;
     this.paused = false;
     this.simSpeed = 1;
-    this.spawnRate = 0.8; // vehicles/sec base
+    this.spawnRate = 2.0; // vehicles/sec base (calibrated for 1200+ citywide commuter density)
     this.spawnTimer = 0;
     this.pedSpawnTimer = 0;
     this.cyclistSpawnTimer = 0;
@@ -152,6 +153,7 @@ export class Engine {
   loadCity(graph) {
     if (!this._pfWorker) return;
     this.graph = graph;
+    this._indexDistricts(graph);
     this.intersections.clear();
     this.vehicles = [];
     this.pedestrians = [];
@@ -221,6 +223,30 @@ export class Engine {
       const fitZoom = Math.max(0.08, Math.min(zx, zy, 2));
       this.renderer.camera.centerOn(cx, cy, fitZoom);
       console.log(`[Camera] Centered on (${cx.toFixed(0)}, ${cy.toFixed(0)}) zoom=${fitZoom.toFixed(3)}`);
+    }
+  }
+
+  _indexDistricts(graph) {
+    this.districts = {
+      cantonment: { name: 'Cantonment & Shivaji Nagar Hub', nodes: [] },
+      benson_town: { name: 'Benson Town & Richards Town Layout', nodes: [] },
+      frazer_town: { name: 'Frazer Town & Coles Commercial Belt', nodes: [] },
+      lingarajapuram: { name: 'Lingarajapuram Flyover & Hennur Corridor', nodes: [] },
+      gateways: { name: 'Bengaluru Outer Arterial Gateway', nodes: [] }
+    };
+    const spawnable = graph.spawnableNodes || Array.from(graph.nodes.values());
+    for (const node of spawnable) {
+      if (node.x < 450 || node.x > 3100 || node.y < 800 || node.y > 2800) {
+        this.districts.gateways.nodes.push(node);
+      } else if (node.x < 1800 && node.y >= 1800) {
+        this.districts.cantonment.nodes.push(node);
+      } else if (node.x < 1800 && node.y < 1800) {
+        this.districts.benson_town.nodes.push(node);
+      } else if (node.x >= 1800 && node.y >= 1800) {
+        this.districts.frazer_town.nodes.push(node);
+      } else {
+        this.districts.lingarajapuram.nodes.push(node);
+      }
     }
   }
 
@@ -418,56 +444,86 @@ export class Engine {
   }
 
   findPathAsync(startId, endId) {
-    // Find jammed edges to avoid in pathfinding
     const jammed = [];
     if (this.graph) {
       for (const [id, edge] of this.graph.edges) {
         if (edge.isJammed) jammed.push(id);
       }
     }
-
-    if (!this.workerReady) {
-      return findPath(this.graph, startId, endId, new Set(), new Set(jammed));
-    }
-    return new Promise((resolve) => {
-      const id = this.nextPathId++;
-      this.pathCallbacks.set(id, resolve);
-      
-      const blocked = this.accidents ? Array.from(this.accidents.getBlockedEdges(this.graph)) : [];
-      
-      this.pathfinderWorker.postMessage({
-        type: 'FIND_PATH',
-        id,
-        startId,
-        endId,
-        blocked,
-        jammed
-      });
-    });
+    const blocked = this.accidents ? Array.from(this.accidents.getBlockedEdges(this.graph)) : [];
+    return Promise.resolve(findPath(this.graph, startId, endId, new Set(blocked), new Set(jammed)));
   }
 
   async _spawnTick(dt) {
     this._spawnTimer = (this._spawnTimer || 0) + dt;
-    const effectiveRate = (this.spawnRate || 0.8) * this.timeOfDay.spawnMultiplier;
+    const baseRate = this.spawnRate || 2.0;
+    const currentCount = this.vehicles.length;
+    const maxCapacity = this.maxVehicles || 1200;
+    
+    // Scale spawn rate dynamically based on current population filling
+    const fillRatio = currentCount / maxCapacity;
+    const fillBoost = fillRatio < 0.25 ? 4.0 : (fillRatio < 0.60 ? 2.2 : (fillRatio < 0.85 ? 1.4 : 1.0));
+    const effectiveRate = baseRate * this.timeOfDay.spawnMultiplier * fillBoost;
+    
     if (this._spawnTimer < 1.0 / effectiveRate) return;
     this._spawnTimer = 0;
     
-    // Calibrated Bengaluru vehicle count limit
-    if (this.vehicles.length >= 400) return;
+    if (currentCount >= maxCapacity) return;
 
-    const nodes = this.graph?.spawnableNodes; // pre-filtered, always connected
+    // Batch spawn 1 to 3 vehicles depending on current citywide density
+    const batchSize = currentCount < 350 ? 3 : (currentCount < 750 ? 2 : 1);
+    for (let b = 0; b < batchSize; b++) {
+      if (this.vehicles.length >= maxCapacity) break;
+      await this._spawnOneVehicle();
+    }
+  }
+
+  async _spawnOneVehicle() {
+    if (!this.graph) return;
+    const nodes = this.graph.spawnableNodes;
     if (!nodes || nodes.length < 2) return;
 
-    // Pick random origin citywide (prevent viewport-biased massive traffic jams)
-    const pool = nodes;
-    
     let route = null;
     let origin = null;
-    
-    // Try to find a valid route and clear origin up to 3 times to prevent spawn failures
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const originNode = pool[Math.floor(Math.random() * pool.length)];
-      const destNode   = nodes[Math.floor(Math.random() * nodes.length)];
+    let originName = 'Bengaluru Origin';
+    let destName = 'Bengaluru Destination';
+
+    const districtKeys = this.districts ? Object.keys(this.districts) : [];
+
+    // Try up to 4 attempts to pick origin and destination with a valid route
+    for (let attempt = 0; attempt < 4; attempt++) {
+      let originNode = null;
+      let destNode = null;
+
+      if (districtKeys.length > 0) {
+        // 65% inter-district commuter trips, 35% intra-district local layout trips
+        const isInterDistrict = Math.random() < 0.65;
+        const origKey = districtKeys[Math.floor(Math.random() * districtKeys.length)];
+        let destKey = origKey;
+        if (isInterDistrict) {
+          const others = districtKeys.filter(k => k !== origKey && this.districts[k].nodes.length > 0);
+          if (others.length > 0) {
+            destKey = others[Math.floor(Math.random() * others.length)];
+          }
+        }
+        const oDistrict = this.districts[origKey];
+        const dDistrict = this.districts[destKey];
+        if (oDistrict && dDistrict && oDistrict.nodes.length > 0 && dDistrict.nodes.length > 0) {
+          originNode = oDistrict.nodes[Math.floor(Math.random() * oDistrict.nodes.length)];
+          destNode = dDistrict.nodes[Math.floor(Math.random() * dDistrict.nodes.length)];
+          originName = oDistrict.name;
+          destName = dDistrict.name;
+        }
+      }
+
+      // Fallback if districts not initialized or empty
+      if (!originNode || !destNode || originNode.id === destNode.id) {
+        originNode = nodes[Math.floor(Math.random() * nodes.length)];
+        destNode = nodes[Math.floor(Math.random() * nodes.length)];
+        originName = 'Bengaluru Hub';
+        destName = 'Bengaluru Destination';
+      }
+
       if (originNode && destNode && originNode.id !== destNode.id) {
         const r = await this.findPathAsync(originNode.id, destNode.id);
         if (r && r.length >= 2) {
@@ -481,13 +537,15 @@ export class Engine {
           }
           if (!originOccupied) {
             route = r;
+            route.originName = originName;
+            route.destinationName = destName;
             origin = originNode;
             break;
           }
         }
       }
     }
-    
+
     if (!route || !origin) return;
 
     // Pick type based on real-world Bengaluru traffic survey distribution (adjusted for emergency visibility)
@@ -501,7 +559,7 @@ export class Engine {
     else type = 'emergency';                // 0.5% Emergency vehicles (Ambulances)
 
     const v = this.vehiclePool.acquire(type, route, this.graph);
-    if (!v) { console.warn('[Spawn] Pool exhausted'); return; }
+    if (!v) { return; }
     v.engine = this;
 
     // Position setup
@@ -567,8 +625,8 @@ export class Engine {
         this.totalDespawned++;
         this.totalWaitTime += v.waitTime;
         this.avgWait.push(v.waitTime);
-        // Only count as completed trip if they reached destination (routeIndex at end)
-        if (v.routeIndex >= v.route.length - 1) {
+        // Count as completed trip if reached destination or faded out at destination
+        if (v.hasCompleted || v.routeIndex >= v.route.length - 2) {
           this.completedTrips.push(this._simTime);
           this.completedThisStep++;
         }

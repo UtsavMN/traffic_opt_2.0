@@ -5,12 +5,12 @@ import { Vehicle } from './Vehicle.js';
  * Each Engine instance creates its own pool, avoiding shared module state.
  */
 export class VehiclePool {
-  constructor(capacity = 500) {
+  constructor(capacity = 1500) {
     this._pool = [];
     this._capacity = capacity;
     this._totalCreated = 0;
 
-    // Pre-allocate
+    // Pre-allocate slots for citywide vehicle capacity
     for (let i = 0; i < capacity; i++) {
       this._pool.push(new Vehicle());
       this._totalCreated++;

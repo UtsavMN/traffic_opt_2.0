@@ -57,6 +57,10 @@ class AdaptiveController:
         dispatched_decisions = []
 
         for int_id, int_data in intersections.items():
+            # Skip non-signalized uninterrupted through corridors and flyovers
+            if not int_data.get("is_signalized", True):
+                continue
+
             if self.cooldowns.get(int_id, 0.0) > 0.0:
                 continue
 

@@ -620,13 +620,16 @@ export class Engine {
       if (v.routeIndex + 1 >= v.route.length) continue;
       const nextId = v.route[v.routeIndex + 1];
       const int = this.intersections.get(nextId);
-      if (!int) continue;
+      if (!int || !int.isSignalized) continue;
       
       const dir = v._getDirection();
       if (dir) {
-        // True queue detection: vehicle is within intersection approach zone (< 110px) and stopped/slow (< 3.0 m/s)
-        const distToIntersection = (1 - v.segmentProgress) * (v.currentEdge?.length || 100);
-        if (distToIntersection < 110 && v.speed < 3.0) {
+        // High-fidelity full-corridor queue detection:
+        // Captures stopped/queuing vehicles along the approach edge (up to 280px reach)
+        const edgeLen = v.currentEdge?.length || 100;
+        const distToIntersection = (1 - v.segmentProgress) * edgeLen;
+        const maxQueueReach = Math.min(280 * CANVAS_SCALE, edgeLen * 0.95);
+        if (distToIntersection < maxQueueReach && v.speed < 3.5 * CANVAS_SCALE) {
           int.queues[dir]++;
         }
         // Localized wait time for THIS intersection approach

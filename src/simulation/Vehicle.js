@@ -255,22 +255,39 @@ export class Vehicle {
     const freeFlowTarget = Math.min(this.vFreeFlow * roadHierarchyMult * weatherMult, tierSpeedCap);
     const approachTarget = Math.min(this.vApproach * weatherMult, tierSpeedCap);
 
-    // --- 1. Find Lead Vehicle (Car Following) ---
-    const queryRadius = Math.max(45, (this.speed * 2.0) + this.length);
+    // --- 1. Find Lead Vehicle (Car Following + Cross-Edge Horizon Detection) ---
+    const queryRadius = Math.max(50, (this.speed * 2.2) + this.length);
     const ahead = spatialGrid.query(this.pos.x, this.pos.y, queryRadius);
     
     let leadVehicle = null;
     let minGap = Infinity;
+
+    const nextEdgeId = (this.routeIndex + 2 < this.route.length)
+      ? `${this.route[this.routeIndex + 1]}->${this.route[this.routeIndex + 2]}`
+      : null;
+    const nextEdge = nextEdgeId ? this.graph?.edges.get(nextEdgeId) : null;
     
     for (const other of ahead) {
       if (other.id === this.id || !other.alive) continue;
-      if (other.currentEdgeId !== this.currentEdgeId || other.laneIndex !== this.laneIndex) continue;
       
-      if (other.segmentProgress > this.segmentProgress) {
-        // Gap is distance between centers minus both half-lengths
-        const gap = (other.segmentProgress - this.segmentProgress) * edge.length - (this.length + other.length) / 2;
-        if (gap < minGap && gap >= 0) {
-          minGap = gap;
+      // Case A: Lead vehicle on the exact same edge and lane
+      if (other.currentEdgeId === this.currentEdgeId && other.laneIndex === this.laneIndex) {
+        if (other.segmentProgress > this.segmentProgress) {
+          // Gap is distance between centers minus both half-lengths
+          const gap = (other.segmentProgress - this.segmentProgress) * edge.length - (this.length + other.length) / 2;
+          if (gap < minGap && gap >= 0) {
+            minGap = gap;
+            leadVehicle = other;
+          }
+        }
+      }
+      // Case B: Cross-edge horizon detection — lead vehicle just entered downstream turn edge
+      else if (nextEdge && other.currentEdgeId === nextEdgeId && this.segmentProgress > 0.60) {
+        const remainingOnCurrent = (1 - this.segmentProgress) * edge.length;
+        const enteredOnNext = other.segmentProgress * nextEdge.length;
+        const crossEdgeGap = remainingOnCurrent + enteredOnNext - (this.length + other.length) / 2;
+        if (crossEdgeGap < minGap && crossEdgeGap >= 0) {
+          minGap = crossEdgeGap;
           leadVehicle = other;
         }
       }

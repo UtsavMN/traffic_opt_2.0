@@ -522,9 +522,10 @@ export class Renderer {
   }
 
   // ── Layer 3: Intersections + Traffic Lights ──────────
-  drawIntersections(intersections, layerFilter = 'all') {
+  drawIntersections(intersections, layerFilter = 'all', graph = null) {
     const ctx = this.ctx;
     const bounds = this.getViewportBounds(50);
+    const z = this.camera.zoom;
 
     for (const [, int] of intersections) {
       if (!int.isSignalized || !int.trafficLight) continue;
@@ -533,50 +534,113 @@ export class Renderer {
       if (layerFilter === 'flyover' && intLayer <= 0) continue;
       if (!this.isInsideViewport(int.x, int.y, bounds)) continue;
       const s = this.worldToScreen(int.x, int.y);
-      const z = this.camera.zoom;
 
       // Dynamically calculate radius of junction based on road width
       const roadWidth = (int.maxLanes || 2) * LANE_WIDTH_PX();
       const patchRadius = (roadWidth * 0.5 + 1.2) * z;
-
-      // Removed seamless asphalt junction patch as per user request to make it minimal
-
-      // Traffic lights — 4 signal heads
       const tl = int.trafficLight;
-      
+
+      // ── 1. Approach-Specific Signals & Stop Bars (for each incoming road) ──
+      if (graph) {
+        for (const [, edge] of graph.edges) {
+          if (edge.to !== int.id || !edge.geometry || edge.geometry.length < 2) continue;
+
+          // Determine cardinal approach direction
+          const pEnd = edge.geometry[edge.geometry.length - 1];
+          const pPrev = edge.geometry[edge.geometry.length - 2];
+          const dx = pEnd.x - pPrev.x, dy = pEnd.y - pPrev.y;
+          const len = Math.hypot(dx, dy) || 1;
+          const dirX = dx / len, dirY = dy / len;
+          const perpX = -dirY, perpY = dirX; // Perpendicular facing right
+
+          const approachDir = edge.cardinalDir || (Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'E' : 'W') : (dy > 0 ? 'S' : 'N'));
+          const appColor = (approachDir === 'N' || approachDir === 'S') ? tl.getColorNS() : tl.getColorEW();
+          const hex = appColor === 'GREEN' ? '#00E87A' : (appColor === 'YELLOW' ? '#FFB400' : '#FF3B5C');
+
+          const scale = (typeof CANVAS_SCALE !== 'undefined' ? CANVAS_SCALE : (typeof getCanvasScale === 'function' ? getCanvasScale() : 1)) || 1;
+          const stopLineDist = Math.max(14, (int.maxLanes || 2) * (edge.laneWidthM || 2.85) * scale * 0.65);
+          const stopWorldX = pEnd.x - dirX * stopLineDist;
+          const stopWorldY = pEnd.y - dirY * stopLineDist;
+          const sStop = this.worldToScreen(stopWorldX, stopWorldY);
+
+          const lanes = edge.lanes || 1;
+          const laneW = (edge.laneWidthM || 2.85) * scale * z;
+          const carriagewayW = lanes * laneW;
+
+          // 1.A: Illuminated Stop Bar across approach lane (Left-Hand Traffic in India)
+          ctx.save();
+          ctx.lineCap = 'butt';
+          if (appColor === 'RED') {
+            ctx.strokeStyle = '#FF3B5C'; // Bright luminous red stop line
+            ctx.lineWidth = Math.min(2.5, Math.max(1.2, 0.35 * z));
+            ctx.beginPath();
+            ctx.moveTo(sStop.x, sStop.y);
+            ctx.lineTo(sStop.x - perpX * carriagewayW, sStop.y - perpY * carriagewayW);
+            ctx.stroke();
+          } else if (appColor === 'YELLOW') {
+            ctx.strokeStyle = '#FFB400'; // Amber warning bar
+            ctx.lineWidth = Math.min(2.2, Math.max(1.0, 0.30 * z));
+            ctx.beginPath();
+            ctx.moveTo(sStop.x, sStop.y);
+            ctx.lineTo(sStop.x - perpX * carriagewayW, sStop.y - perpY * carriagewayW);
+            ctx.stroke();
+          } else {
+            // GREEN: Subtle translucent green flow bar
+            ctx.strokeStyle = 'rgba(0, 232, 122, 0.50)';
+            ctx.lineWidth = Math.min(1.5, Math.max(0.8, 0.20 * z));
+            ctx.beginPath();
+            ctx.moveTo(sStop.x, sStop.y);
+            ctx.lineTo(sStop.x - perpX * carriagewayW, sStop.y - perpY * carriagewayW);
+            ctx.stroke();
+          }
+
+          // 1.B: High-visibility Signal Lamp on left roadside curb
+          const curbX = sStop.x - perpX * (carriagewayW + 2.5 * z);
+          const curbY = sStop.y - perpY * (carriagewayW + 2.5 * z);
+          const lampRadius = Math.min(4.0, Math.max(2.0, 1.8 * z));
+
+          ctx.fillStyle = hex;
+          ctx.beginPath();
+          ctx.arc(curbX, curbY, lampRadius, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.strokeStyle = '#0F172A';
+          ctx.lineWidth = Math.min(1.2, 0.6 * z);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
+      // ── 2. Junction Center Hub & Active Corridor Flow Arrow ──
       ctx.save();
       ctx.translate(s.x, s.y);
 
-      // Determine the active color of the intersection
+      // Determine corridor phase
+      const isNSActive = tl.currentPhase ? tl.currentPhase.includes('NS') : true;
       const isGreen = tl.currentPhase ? tl.currentPhase.includes('GREEN') : false;
       const isYellow = tl.currentPhase ? tl.currentPhase.includes('YELLOW') : false;
-      const hexColor = isGreen ? '#00E87A' : (isYellow ? '#FFB400' : '#FF3B5C');
+      const hubColor = isGreen ? '#00E87A' : (isYellow ? '#FFB400' : '#FF3B5C');
 
-      // High-Tech Clean Signal Beacon:
-      // Sleek luminous circular core + outer pulsing ring showing signal phase
-      const beaconRadius = Math.min(5.0, Math.max(2.2, 2.5 * z));
-      ctx.fillStyle = hexColor;
+      // Center junction beacon ring
+      const hubR = Math.min(4.5, Math.max(2.0, 2.2 * z));
+      ctx.fillStyle = '#0F172A';
       ctx.beginPath();
-      ctx.arc(0, 0, beaconRadius, 0, Math.PI * 2);
+      ctx.arc(0, 0, hubR, 0, Math.PI * 2);
       ctx.fill();
-
-      // Outer phase indicator ring
-      ctx.strokeStyle = hexColor;
-      ctx.lineWidth = Math.min(1.6, Math.max(0.8, 0.9 * z));
-      ctx.beginPath();
-      ctx.arc(0, 0, beaconRadius * 1.6, 0, Math.PI * 2);
+      ctx.strokeStyle = hubColor;
+      ctx.lineWidth = Math.min(1.8, Math.max(0.8, 0.8 * z));
       ctx.stroke();
 
-      // Phase direction flow line on street zoom (shows which corridor has green right-of-way)
-      if (z > 2.0 && isGreen && tl.currentPhase) {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.90)';
-        ctx.lineWidth = Math.min(1.5, 0.8 * z);
-        const armLen = beaconRadius + 3.0 * z;
+      // Active corridor flow arrow indicating which corridor has green right-of-way
+      if (isGreen) {
+        ctx.strokeStyle = '#00E87A';
+        ctx.lineWidth = Math.min(1.8, Math.max(0.9, 0.8 * z));
+        const arm = hubR + Math.min(8, 3.2 * z);
         ctx.beginPath();
-        if (tl.currentPhase.includes('NS')) {
-          ctx.moveTo(0, -armLen); ctx.lineTo(0, armLen);
+        if (isNSActive) {
+          ctx.moveTo(0, -arm); ctx.lineTo(0, arm);
         } else {
-          ctx.moveTo(-armLen, 0); ctx.lineTo(armLen, 0);
+          ctx.moveTo(-arm, 0); ctx.lineTo(arm, 0);
         }
         ctx.stroke();
       }

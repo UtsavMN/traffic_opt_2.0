@@ -57,6 +57,8 @@ server.listen(4173, async () => {
     if (msg.type() === 'error') {
       errors.push(msg.text());
       console.error('[BROWSER ERROR]', msg.text());
+    } else {
+      console.log('[BROWSER LOG]', msg.text());
     }
   });
   page.on('pageerror', err => {
@@ -70,32 +72,82 @@ server.listen(4173, async () => {
   console.log('Waiting for simulation to initialize and populate vehicles...');
   await new Promise(r => setTimeout(r, 6000));
 
-  // Measure FPS over 5 seconds
+  // Measure FPS and Red-Light Obedience over 5 seconds
   const perfData = await page.evaluate(async () => {
     return new Promise(resolve => {
       let frameCount = 0;
+      let redViolations = 0;
+      let totalRedObservations = 0;
       const startTime = performance.now();
-      function count() {
+
+      function monitor() {
         frameCount++;
+        const engine = window.__sancharEngine;
+        if (engine && engine.vehicles) {
+          for (const v of engine.vehicles) {
+            if (!v.alive || v.routeIndex + 1 >= v.route.length) continue;
+            const targetIntId = v.route[v.routeIndex + 1];
+            const intObj = engine.intersections.get(targetIntId);
+            if (!intObj || !intObj.isSignalized || !intObj.trafficLight) continue;
+
+            const edge = v.currentEdge;
+            if (!edge) continue;
+
+            const dir = v._getDirection ? v._getDirection() : null;
+            const lightColor = dir ? ((dir === 'N' || dir === 'S') ? intObj.trafficLight.getColorNS() : intObj.trafficLight.getColorEW()) : 'GREEN';
+
+            const stopLineDist = Math.max(14, (intObj.maxLanes || 2) * (edge.laneWidthM || 2.85) * 1.0 * 0.65);
+            const distToIntersection = (1 - v.segmentProgress) * edge.length;
+            const distToStopLine = distToIntersection - stopLineDist;
+
+            if (lightColor === 'RED' && !v.sirenActive) {
+              totalRedObservations++;
+              // If not legally clearing on green, but crossed > 8px past stop line on red:
+              if (!v.clearingJunction && distToStopLine < -8) {
+                redViolations++;
+                if (redViolations <= 5) {
+                  console.log(`[VIOLATION crossed stop line on red] Vehicle ${v.id} at node ${targetIntId}: dist=${distToStopLine.toFixed(1)}, spd=${v.speed.toFixed(1)}, clearing=${v.clearingJunction}`);
+                }
+              }
+              // If past the stop line on red, speed must not exceed crawl
+              if (!v.clearingJunction && distToStopLine <= 0 && distToStopLine >= -8 && v.speed > 1.0) {
+                redViolations++;
+                if (redViolations <= 5) {
+                  console.log(`[VIOLATION creeping past stop line] Vehicle ${v.id} at node ${targetIntId}: dist=${distToStopLine.toFixed(1)}, spd=${v.speed.toFixed(1)}, clearing=${v.clearingJunction}`);
+                }
+              }
+            }
+          }
+        }
+
         if (performance.now() - startTime < 4000) {
-          requestAnimationFrame(count);
+          requestAnimationFrame(monitor);
         } else {
           const elapsed = (performance.now() - startTime) / 1000;
           const fps = frameCount / elapsed;
-          const vCount = window.__sancharEngine ? window.__sancharEngine.vehicles.length : 0;
-          const intCount = window.__sancharEngine ? window.__sancharEngine.intersections.size : 0;
-          resolve({ fps, frameCount, elapsed, vCount, intCount });
+          const vCount = engine ? engine.vehicles.length : 0;
+          const intCount = engine ? engine.intersections.size : 0;
+          let signalizedCount = 0;
+          if (engine && engine.intersections) {
+            for (const [, int] of engine.intersections) {
+              if (int.isSignalized) signalizedCount++;
+            }
+          }
+          resolve({ fps, frameCount, elapsed, vCount, intCount, signalizedCount, redViolations, totalRedObservations });
         }
       }
-      requestAnimationFrame(count);
+      requestAnimationFrame(monitor);
     });
   });
 
-  console.log('--- PERFORMANCE RESULTS ---');
+  console.log('--- PERFORMANCE & SIGNAL RESULTS ---');
   console.log(`FPS: ${perfData.fps.toFixed(2)}`);
   console.log(`Frames: ${perfData.frameCount} over ${perfData.elapsed.toFixed(2)}s`);
   console.log(`Active Vehicles: ${perfData.vCount}`);
   console.log(`Total Intersections: ${perfData.intCount}`);
+  console.log(`Signalized Intersections: ${perfData.signalizedCount}`);
+  console.log(`Red Light Observations: ${perfData.totalRedObservations}`);
+  console.log(`Red Light Violations: ${perfData.redViolations}`);
   console.log(`Errors caught: ${errors.length}`);
 
   // Take a full overview screenshot

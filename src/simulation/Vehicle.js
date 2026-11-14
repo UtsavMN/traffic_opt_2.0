@@ -298,6 +298,7 @@ export class Vehicle {
     let intersectionGap = Infinity;
     let stopAtIntersection = false;
     let distToIntersection = Infinity;
+    let distToStopLine = Infinity;
     let stopLineDist = 15;
     let currentV0 = freeFlowTarget;
     let accelMult = 1.0;
@@ -315,12 +316,12 @@ export class Vehicle {
         // Stop line is located before the junction center
         stopLineDist = Math.max(14, (intObj.maxLanes || 2) * (edge.laneWidthM || 2.85) * CANVAS_SCALE * 0.65);
         distToIntersection = (1 - this.segmentProgress) * edge.length;
-        const distToStopLine = distToIntersection - stopLineDist;
+        distToStopLine = distToIntersection - stopLineDist;
 
         // Spatial speed adaptation at different points:
         if (distToStopLine <= 0) {
-          if (lightColor === 'GREEN' || this.sirenActive) {
-            this.clearingJunction = true; // Legally entered on green
+          if (lightColor === 'GREEN' || lightColor === 'YELLOW' || this.sirenActive) {
+            this.clearingJunction = true; // Legally entered on green or yellow
           }
           if (this.clearingJunction) {
             // Inside intersection box: accelerate briskly to clear junction rapidly
@@ -357,11 +358,11 @@ export class Vehicle {
         const isRedOrYellow = (lightColor !== 'GREEN');
         if (isRedOrYellow && !this.sirenActive && !this.clearingJunction) {
           // Check if vehicle is approaching or at the stop line
-          if (distToStopLine > -8 * CANVAS_SCALE) {
+          if (distToStopLine > -12 * CANVAS_SCALE) {
             stopAtIntersection = true;
             intersectionGap = Math.max(0.5, distToStopLine - (this.length / 2));
             // Hold vehicle firmly stopped when at stop line, preventing speed creeping
-            if (distToStopLine <= 3 * CANVAS_SCALE && this.speed < 4.0 * CANVAS_SCALE) {
+            if (distToStopLine <= 4.0 * CANVAS_SCALE) {
               this.speed = 0;
             }
           }
@@ -398,12 +399,13 @@ export class Vehicle {
 
     // --- 2.1 Anti-Gridlock Watchdog ---
     // In real Bangalore traffic, congestion occurs on approaches, not 4-way deadlocks in empty junctions.
-    // If any vehicle is in or near an intersection and has been delayed > 2.0s,
-    // force clearance right-of-way to prevent cascading gridlock!
-    if (distToIntersection < stopLineDist * 1.8 && this.waitTime > 2.0) {
-      effectiveGap = Infinity;
-      if (this.speed < 5 * CANVAS_SCALE) {
-        this.speed = Math.max(this.speed, 6 * CANVAS_SCALE); // Crawl forward to clear the box
+    // ONLY applies if the vehicle entered legally on GREEN (clearingJunction && distToStopLine <= 0)
+    // and is stuck inside the yellow box due to deadlocked cross-traffic.
+    // A vehicle BEFORE the stop line at a RED/YELLOW signal must NEVER run the signal!
+    if (this.clearingJunction && distToStopLine <= 0 && this.currentWaitTime > 3.0) {
+      effectiveGap = Math.max(effectiveGap, 30 * (CANVAS_SCALE || 1));
+      if (this.speed < 4 * (CANVAS_SCALE || 1)) {
+        this.speed = Math.max(this.speed, 5 * (CANVAS_SCALE || 1)); // Crawl forward to clear the box
       }
     }
 
@@ -425,8 +427,13 @@ export class Vehicle {
       dv_dt = accelCurrent * (1 - Math.pow(this.speed / currentV0, 4) - Math.pow(s_star / Math.max(0.1, effectiveGap), 2));
     }
 
-    // Update speed
-    this.speed += dv_dt * dt;
+    // Absolute zero-speed enforcement when stopped at a red light
+    if (stopAtIntersection && distToStopLine <= 4.0 * (CANVAS_SCALE || 1) && !this.clearingJunction) {
+      dv_dt = Math.min(0, dv_dt);
+      this.speed = 0;
+    } else {
+      this.speed += dv_dt * dt;
+    }
     this.speed = Math.max(0, this.speed); // No reversing
 
     // Wait time tracking (distinguishes current intersection wait from cumulative trip wait)

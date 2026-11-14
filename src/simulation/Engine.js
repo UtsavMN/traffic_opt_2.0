@@ -180,8 +180,8 @@ export class Engine {
     // are unsignalized yield / free-flow turns to prevent artificial gridlock and visual clutter.
     const candidates = [];
     for (const [id, node] of graph.nodes) {
-      const isElevated = (node.layer || 0) > 0 || node.isBridge;
-      if (isElevated) continue;
+      // 1. Surface level only (never on elevated flyovers, bridges, or underpass troughs)
+      if ((node.layer || 0) !== 0 || node.isBridge) continue;
 
       const neighbors = graph.getNeighbors(id);
       const allNeighbors = new Set(neighbors);
@@ -192,27 +192,45 @@ export class Engine {
 
       let isArterial = false, isMain = false;
       let hasNamedRoad = false;
+      let hasFlyoverEdge = false;
+      const roadNames = new Set();
+      let mainCount = 0;
+
       for (const nid of allNeighbors) {
         const e = graph.getEdge(id, nid) || graph.getEdge(nid, id);
         if (e) {
+          if (e.isFlyover || (e.layer || 0) > 0 || (e.name && e.name.toLowerCase().includes('flyover'))) {
+            hasFlyoverEdge = true;
+          }
           if (e.roadTier === 'arterial') isArterial = true;
-          if (e.roadTier === 'main') isMain = true;
-          if (e.name) hasNamedRoad = true;
+          if (e.roadTier === 'main') { isMain = true; mainCount++; }
+          if (e.name) { hasNamedRoad = true; roadNames.add(e.name); }
         }
       }
 
-      // Pure residential/gully crosses never have signals
-      if (!isArterial && !isMain && allNeighbors.size < 4) continue;
+      // STRICT IRC:93 SIGNAL CRITERIA:
+      // A. Flyover entries, exits and ramps are free-flow or yield merges — NEVER signalized
+      if (hasFlyoverEdge) continue;
 
-      let score = allNeighbors.size * 10 + (isArterial ? 50 : 0) + (isMain ? 25 : 0) + (hasNamedRoad ? 15 : 0);
+      // B. Unnamed alleys and dead-end back-alleys are NEVER signalized
+      if (!hasNamedRoad) continue;
+
+      // C. Must connect at least one Arterial OR Commercial Main Road
+      if (!isArterial && !isMain) continue;
+
+      // D. 3-way T-junctions must involve a major arterial or two commercial main roads
+      if (allNeighbors.size === 3 && !isArterial && mainCount < 2) continue;
+
+      // Priority score based on real mobility hierarchy
+      const score = allNeighbors.size * 15 + (isArterial ? 60 : 0) + (isMain ? 30 : 0) + (roadNames.size * 10);
       candidates.push({ id, node, score, x: node.x, y: node.y });
     }
 
     candidates.sort((a, b) => b.score - a.score);
 
-    // Minimum 130px (~150m) corridor spacing between traffic signals
+    // Minimum 180px (~200m) corridor spacing between traffic signals
     const signalizedIds = new Set();
-    const minSpacingSq = 130 * 130;
+    const minSpacingSq = 180 * 180;
     for (const c of candidates) {
       let tooClose = false;
       for (const sId of signalizedIds) {
@@ -816,13 +834,13 @@ export class Engine {
     // Layer 5: Cyclists
     this.renderer.drawCyclists(this.cyclists);
     // Layer 5.5: Surface Intersections & Traffic Signals (layer <= 0)
-    this.renderer.drawIntersections(this.intersections, 'surface');
+    this.renderer.drawIntersections(this.intersections, 'surface', this.graph);
     // Layer 6: Elevated Flyovers & Bridges (layer > 0) with realistic 3D drop shadow, deck asphalt & parapets
     this.renderer.drawRoads(this.graph, 'flyover');
     // Layer 7: Elevated Vehicles (layer > 0) traveling on top of the flyovers
     this.renderer.drawVehicles(this.vehicles, this.timeOfDay.isNight, 'flyover');
     // Layer 7.5: Elevated Intersections (layer > 0)
-    this.renderer.drawIntersections(this.intersections, 'flyover');
+    this.renderer.drawIntersections(this.intersections, 'flyover', this.graph);
     // Layer 8: Accidents
     this.accidents.render(this.renderer.ctx);
     // Layer 9: Weather particles

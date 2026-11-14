@@ -21,8 +21,8 @@ export class Engine {
     this.canvas = canvas;
     this.renderer = new Renderer(canvas);
     this.spatialGrid = new SpatialGrid(50);
-    this.vehiclePool = new VehiclePool(1500);
-    this.maxVehicles = 1200;
+    this.vehiclePool = new VehiclePool(3500);
+    this.maxVehicles = 2800;
 
     // City graph (set by loadCity)
     this.graph = null;
@@ -50,7 +50,7 @@ export class Engine {
     this.running = false;
     this.paused = false;
     this.simSpeed = 1;
-    this.spawnRate = 2.0; // vehicles/sec base (calibrated for 1200+ citywide commuter density)
+    this.spawnRate = 4.8; // vehicles/sec base (calibrated for 2800+ citywide commuter density)
     this.spawnTimer = 0;
     this.pedSpawnTimer = 0;
     this.cyclistSpawnTimer = 0;
@@ -375,6 +375,7 @@ export class Engine {
 
     for (const v of this.vehicles) {
       if (!v.alive) continue;
+      this.spatialGrid.insert(v);
       const edge = v.currentEdge;
       if (edge) {
         const fromNode = this.graph.nodes.get(edge.from);
@@ -386,7 +387,6 @@ export class Engine {
       } else {
         v.inViewport = this.renderer.isInsideViewport(v.pos.x, v.pos.y, bounds);
       }
-      if (v.inViewport) this.spatialGrid.insert(v);
     }
 
     this.sensorTimer = (this.sensorTimer || 0) + dt;
@@ -416,8 +416,9 @@ export class Engine {
     const wMult = this.weather.speedMult;
     const isNight = this.timeOfDay.isNight;
     const activeEdges = new Set();
+    const now = performance.now();
     for (const v of this.vehicles) {
-      v.update(dt, this.intersections, this.spatialGrid, wMult, isNight);
+      v.update(dt, this.intersections, this.spatialGrid, wMult, isNight, now);
       if (v.currentEdge) {
         if (!activeEdges.has(v.currentEdge)) {
           v.currentEdge.currentSpeedSum = 0;
@@ -451,8 +452,8 @@ export class Engine {
       p.update(dt, this.intersections.get(p.intersectionId));
     }
 
-    // Update queue counts
-    this._updateQueues();
+    // Update queue counts (20Hz throttled for maximum physics throughput)
+    this._updateQueues(dt);
 
     // Update cyclists
     for (const c of this.cyclists) {
@@ -479,22 +480,22 @@ export class Engine {
 
   async _spawnTick(dt) {
     this._spawnTimer = (this._spawnTimer || 0) + dt;
-    const baseRate = this.spawnRate || 2.0;
+    const baseRate = this.spawnRate || 4.8;
     const currentCount = this.vehicles.length;
-    const maxCapacity = this.maxVehicles || 1200;
+    const maxCapacity = this.maxVehicles || 2800;
     
+    if (currentCount >= maxCapacity) return;
+
     // Scale spawn rate dynamically based on current population filling
     const fillRatio = currentCount / maxCapacity;
-    const fillBoost = fillRatio < 0.25 ? 4.0 : (fillRatio < 0.60 ? 2.2 : (fillRatio < 0.85 ? 1.4 : 1.0));
+    const fillBoost = fillRatio < 0.35 ? 6.0 : (fillRatio < 0.70 ? 4.0 : (fillRatio < 0.90 ? 2.5 : 1.8));
     const effectiveRate = baseRate * this.timeOfDay.spawnMultiplier * fillBoost;
     
     if (this._spawnTimer < 1.0 / effectiveRate) return;
     this._spawnTimer = 0;
-    
-    if (currentCount >= maxCapacity) return;
 
-    // Batch spawn 1 to 3 vehicles depending on current citywide density
-    const batchSize = currentCount < 350 ? 3 : (currentCount < 750 ? 2 : 1);
+    // Batch spawn 2 to 6 vehicles depending on current citywide density
+    const batchSize = currentCount < 800 ? 6 : (currentCount < 1800 ? 4 : (currentCount < 2500 ? 3 : 2));
     for (let b = 0; b < batchSize; b++) {
       if (this.vehicles.length >= maxCapacity) break;
       await this._spawnOneVehicle();
@@ -513,8 +514,8 @@ export class Engine {
 
     const districtKeys = this.districts ? Object.keys(this.districts) : [];
 
-    // Try up to 4 attempts to pick origin and destination with a valid route
-    for (let attempt = 0; attempt < 4; attempt++) {
+    // Try up to 2 attempts to pick origin and destination with a valid route (prevents frame drops)
+    for (let attempt = 0; attempt < 2; attempt++) {
       let originNode = null;
       let destNode = null;
 
@@ -551,13 +552,9 @@ export class Engine {
         const r = await this.findPathAsync(originNode.id, destNode.id);
         if (r && r.length >= 2) {
           const firstEdgeId = `${r[0]}->${r[1]}`;
-          let originOccupied = false;
-          for (const other of this.vehicles) {
-            if (other.alive && other.currentEdgeId === firstEdgeId && other.segmentProgress < 0.08) {
-              originOccupied = true;
-              break;
-            }
-          }
+          // O(1) clearance check using spatial grid around origin node
+          const nearby = this.spatialGrid.query(originNode.x, originNode.y, 25 * (CANVAS_SCALE || 1));
+          const originOccupied = nearby.some(other => other.alive && other.currentEdgeId === firstEdgeId && other.segmentProgress < 0.08);
           if (!originOccupied) {
             route = r;
             route.originName = originName;
@@ -604,9 +601,15 @@ export class Engine {
     this.cyclists.push(new Cyclist(route, this.graph));
   }
 
-  _updateQueues() {
-    // Reset queues
+  _queueTimer = 0;
+  _updateQueues(dt = 0.016) {
+    this._queueTimer = (this._queueTimer || 0) + dt;
+    if (this._queueTimer < 0.05) return; // 20Hz update rate: high-fidelity queues without per-frame overhead
+    this._queueTimer = 0;
+
+    // Reset queues only on signalized intersections
     for (const [, int] of this.intersections) {
+      if (!int.isSignalized) continue;
       int.queues.N = 0; int.queues.S = 0;
       int.queues.E = 0; int.queues.W = 0;
       int.maxWait = 0;

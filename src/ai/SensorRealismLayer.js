@@ -18,8 +18,25 @@ export class SensorRealismLayer {
 
     // Compute dynamic sensor confidences based on environment
     const confidences = this._getSensorConfidences(isNight, weather);
+    const maxApproachDistSq = (120 * CANVAS_SCALE) ** 2;
 
+    // 1. Single O(V) pass to bucket vehicles by their destination intersection node
+    const approachingByNode = new Map();
+    for (const v of engine.vehicles) {
+      if (!v.alive || v.routeIndex + 1 >= v.route.length) continue;
+      const nextNodeId = v.route[v.routeIndex + 1];
+      let bucket = approachingByNode.get(nextNodeId);
+      if (!bucket) {
+        bucket = [];
+        approachingByNode.set(nextNodeId, bucket);
+      }
+      bucket.push(v);
+    }
+
+    // 2. Evaluate physical sensors on signalized junctions
     for (const [id, int] of engine.intersections) {
+      if (!int.isSignalized) continue;
+
       if (!this.estimates.has(id)) {
         this.estimates.set(id, { N: 0, S: 0, E: 0, W: 0 });
       }
@@ -27,13 +44,27 @@ export class SensorRealismLayer {
         this.diagnostics.set(id, { confidence: 1.0, activeSensors: ['visual', 'infrared', 'radar'] });
       }
 
-      // 1. Gather all vehicles approaching this intersection
-      const approachingVehicles = this._getApproachingVehicles(int, engine.vehicles);
+      // Gather only the vehicles actually approaching this intersection
+      const candidates = approachingByNode.get(id);
+      const approachingVehicles = [];
+      if (candidates) {
+        for (const v of candidates) {
+          const dx = int.x - v.pos.x;
+          const dy = int.y - v.pos.y;
+          const distSq = dx * dx + dy * dy;
+          if (distSq <= maxApproachDistSq) {
+            const dir = v._getDirection ? v._getDirection() : null;
+            if (dir) {
+              approachingVehicles.push({ vehicle: v, dist: Math.sqrt(distSq), dir });
+            }
+          }
+        }
+      }
 
-      // 2. Perform occlusion and detection checks per direction
+      // Perform occlusion and detection checks per direction
       const rawDetections = this._runDetections(int, approachingVehicles, confidences);
 
-      // 3. Smooth raw sensor counts using EMA (Exponential Moving Average) filter
+      // Smooth raw sensor counts using EMA (Exponential Moving Average) filter
       const prevEst = this.estimates.get(id);
       const alpha = Math.max(0.05, Math.min(0.3, confidences.fusedConfidence)); // Trust factor matches confidence
 

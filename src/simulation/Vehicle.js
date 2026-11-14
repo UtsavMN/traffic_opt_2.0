@@ -109,12 +109,13 @@ export class Vehicle {
   _getDirection() {
     const edge = this.currentEdge;
     if (!edge) return null;
+    if (edge.cardinalDir) return edge.cardinalDir;
     const from = this.graph.nodes.get(edge.from);
     const to = this.graph.nodes.get(edge.to);
     if (!from || !to) return null;
     const dx = to.x - from.x, dy = to.y - from.y;
-    if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 'E' : 'W';
-    return dy > 0 ? 'S' : 'N';
+    edge.cardinalDir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'E' : 'W') : (dy > 0 ? 'S' : 'N');
+    return edge.cardinalDir;
   }
 
   _updatePosition(dt) {
@@ -237,7 +238,7 @@ export class Vehicle {
     this.pos.y = y + perpY * this.laneOffset;
   }
 
-  update(dt, intersections, spatialGrid, weatherMult = 1, isNight = false) {
+  update(dt, intersections, spatialGrid, weatherMult = 1, isNight = false, now = performance.now()) {
     if (!this.alive) return;
     const edge = this.currentEdge;
     if (!edge) { this.alive = false; return; }
@@ -446,7 +447,6 @@ export class Vehicle {
     const minSafetyGap = isBike ? 8 * CANVAS_SCALE : 18 * CANVAS_SCALE;
 
     if (leadVehicle && this.speed < currentV0 * changeThreshold && edge.lanes > 1) {
-      const now = performance.now();
       if (!this.lastLaneChangeTime) this.lastLaneChangeTime = 0;
       
       if (now - this.lastLaneChangeTime > cooldownMs) {

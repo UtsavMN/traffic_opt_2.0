@@ -11,7 +11,7 @@ export const useMetricsStore = create((set, get) => ({
   aiDecisionsPerMin: 0,
   optimizationScore: 0,
   vehicleCount: 0,
-  spawnRate: 0.8,
+  spawnRate: 4.8,
   timeSaved: 0,
   congestionLevel: 0,
   avgSpeedKmh: 40,

@@ -962,14 +962,29 @@ export class Renderer {
     ctx.fill();
     ctx.stroke();
 
-    // Vehicle dots
+    // Batched vehicle dots (2 single-path draw calls instead of thousands)
+    ctx.fillStyle = '#3D9EFF';
+    ctx.beginPath();
     for (const v of vehicles) {
-      if (!v.alive) continue;
-      ctx.fillStyle = v.type === 'emergency' ? '#FF3B5C' : '#3D9EFF';
-      ctx.beginPath();
-      ctx.arc(M.x + v.pos.x * sx, M.y + v.pos.y * sy, 1.2, 0, Math.PI * 2);
-      ctx.fill();
+      if (!v.alive || v.type === 'emergency') continue;
+      const mx = M.x + v.pos.x * sx;
+      const my = M.y + v.pos.y * sy;
+      ctx.moveTo(mx + 1.2, my);
+      ctx.arc(mx, my, 1.2, 0, Math.PI * 2);
     }
+    ctx.fill();
+
+    // Emergency vehicles (bright red)
+    ctx.fillStyle = '#FF3B5C';
+    ctx.beginPath();
+    for (const v of vehicles) {
+      if (!v.alive || v.type !== 'emergency') continue;
+      const mx = M.x + v.pos.x * sx;
+      const my = M.y + v.pos.y * sy;
+      ctx.moveTo(mx + 1.8, my);
+      ctx.arc(mx, my, 1.8, 0, Math.PI * 2);
+    }
+    ctx.fill();
 
     // Camera viewport rectangle
     const b = this.camera.worldBounds();

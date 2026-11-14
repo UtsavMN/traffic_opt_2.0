@@ -49,6 +49,9 @@ export class CityGraph {
     const edgeId = `${fromId}->${toId}`;
     if (this.edges.has(edgeId)) return; // skip duplicates
 
+    const dx = to.x - from.x, dy = to.y - from.y;
+    const cardinalDir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'E' : 'W') : (dy > 0 ? 'S' : 'N');
+
     const edge = {
       id: edgeId,
       from: fromId, to: toId,
@@ -62,7 +65,8 @@ export class CityGraph {
       isTunnel: !!isTunnel || (layer < 0),
       underpasses: [],
       blocked: 0,
-      direction: Math.atan2(to.y - from.y, to.x - from.x),
+      direction: Math.atan2(dy, dx),
+      cardinalDir,
       geometry: actualGeometry
     };
 

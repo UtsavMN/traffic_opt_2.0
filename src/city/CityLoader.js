@@ -5,31 +5,31 @@ export const SCENARIOS = {
     name: 'Greater Bengaluru Central Hub',
     description: 'Metropolitan hub spanning Frazer Town, Cantonment & Hennur (1,200+ junctions)',
     generator: async () => await loadBengaluruArea('central'),
-    config: { spawnRate: 1.25, timeOfDay: 8.5 }
+    config: { spawnRate: 4.8, timeOfDay: 8.5 }
   },
   bengaluru_frazer_town: {
     name: 'Frazer Town & Coles Road Hub',
     description: 'Commercial & dining grid: Coles Rd, MM Rd, Mosque Rd & dense residential crosses',
     generator: async () => await loadBengaluruArea('frazer_town'),
-    config: { spawnRate: 1.35, timeOfDay: 19.0 }
+    config: { spawnRate: 4.5, timeOfDay: 19.0 }
   },
   bengaluru_lingarajapuram: {
     name: 'Lingarajapuram - Hennur Flyover Corridor',
     description: 'Notorious arterial bottleneck: Flyover railway crossing, Hennur Main Rd & Banaswadi Rd',
     generator: async () => await loadBengaluruArea('lingarajapuram'),
-    config: { spawnRate: 1.4, timeOfDay: 8.5 }
+    config: { spawnRate: 5.0, timeOfDay: 8.5 }
   },
   bengaluru_cantonment: {
     name: 'Cantonment & Shivaji Nagar Gateway',
     description: 'Transit hub: Millers Rd, Cantonment Station & heavy BMTC bus interchange',
     generator: async () => await loadBengaluruArea('cantonment'),
-    config: { spawnRate: 1.2, timeOfDay: 9.0 }
+    config: { spawnRate: 4.6, timeOfDay: 9.0 }
   },
   bengaluru_benson_town: {
     name: 'Benson Town & Richards Town Layouts',
     description: 'Residential layout grid: Nandi Durga Rd, Benson Cross, Davis Rd & gully filtering',
     generator: async () => await loadBengaluruArea('benson_town'),
-    config: { spawnRate: 1.0, timeOfDay: 14.0 }
+    config: { spawnRate: 4.2, timeOfDay: 14.0 }
   }
 };
 

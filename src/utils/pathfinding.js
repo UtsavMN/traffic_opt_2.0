@@ -16,7 +16,9 @@ export function findPath(graph, startId, endId, blockedEdges = new Set(), jammed
   };
   open.push({ id: startId, f: h(startId) });
   
-  while (open.size > 0) {
+  let steps = 0;
+  const maxSteps = 800; // Bound worst-case search on one-way loops / disconnected pockets
+  while (open.size > 0 && steps++ < maxSteps) {
     const { id: cur } = open.pop();
     if (cur === endId) {
       const path = [];

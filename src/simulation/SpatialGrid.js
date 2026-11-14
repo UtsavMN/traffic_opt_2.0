@@ -8,22 +8,27 @@ export class SpatialGrid {
   }
 
   _key(cx, cy) { 
-    // Optimization: bitwise integer key instead of string allocation
-    // Assuming cx and cy fit within 16-bit signed integers (-32768 to 32767)
+    // Bitwise integer key instead of string allocation
     return (cx << 16) | (cy & 0xFFFF); 
   }
 
-  _cellCoords(x, y) {
-    return [Math.floor(x / this.cellSize), Math.floor(y / this.cellSize)];
+  clear() {
+    // Zero-allocation clear: reuse pre-allocated cell arrays to avoid GC pressure
+    for (const cell of this.cells.values()) {
+      cell.length = 0;
+    }
   }
 
-  clear() { this.cells.clear(); }
-
   insert(entity) {
-    const [cx, cy] = this._cellCoords(entity.pos.x, entity.pos.y);
-    const key = this._key(cx, cy);
-    if (!this.cells.has(key)) this.cells.set(key, []);
-    this.cells.get(key).push(entity);
+    const cx = Math.floor(entity.pos.x / this.cellSize);
+    const cy = Math.floor(entity.pos.y / this.cellSize);
+    const key = (cx << 16) | (cy & 0xFFFF);
+    let cell = this.cells.get(key);
+    if (!cell) {
+      cell = [];
+      this.cells.set(key, cell);
+    }
+    cell.push(entity);
   }
 
   query(x, y, radius) {
@@ -36,9 +41,10 @@ export class SpatialGrid {
 
     for (let cx = minCX; cx <= maxCX; cx++) {
       for (let cy = minCY; cy <= maxCY; cy++) {
-        const cell = this.cells.get(this._key(cx, cy));
+        const cell = this.cells.get((cx << 16) | (cy & 0xFFFF));
         if (cell) {
-          for (const e of cell) {
+          for (let i = 0; i < cell.length; i++) {
+            const e = cell[i];
             const dx = e.pos.x - x, dy = e.pos.y - y;
             if (dx * dx + dy * dy <= r2) results.push(e);
           }

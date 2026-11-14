@@ -5,6 +5,9 @@
 export class StateEncoder {
   encode(intersection, engine) {
     const int = intersection;
+    if (!int || !int.isSignalized || !int.trafficLight) {
+      return new Float32Array(10);
+    }
     const tl = int.trafficLight;
     const maxQ = 20;
 
@@ -48,7 +51,7 @@ export class StateEncoder {
     
     for (const nId of neighbors) {
       const ni = engine.intersections.get(nId);
-      if (!ni) continue;
+      if (!ni || !ni.isSignalized || !ni.trafficLight) continue;
       const nEst = sensorRealism ? sensorRealism.getEstimatedQueues(nId) : ni.queues;
       const nIsNS = ni.trafficLight.currentPhase.includes('NS');
       

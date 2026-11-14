@@ -80,7 +80,7 @@ export class Cyclist {
     // Traffic light check
     if (this.segmentProgress > 0.7) {
       const intObj = intersections.get(this.route[this.routeIndex + 1]);
-      if (intObj) {
+      if (intObj && intObj.isSignalized && intObj.trafficLight) {
         const dir = this._getDirection();
         if (dir && !intObj.trafficLight.canPass(dir)) {
           const rem = (1 - this.segmentProgress) * edge.length;

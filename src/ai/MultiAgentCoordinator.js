@@ -24,6 +24,7 @@ export class MultiAgentCoordinator {
       const bounds = engine.renderer ? engine.renderer.getViewportBounds(100) : null;
       
       for (const [id, int] of engine.intersections) {
+        if (!int.isSignalized || !int.trafficLight) continue;
         const inViewport = bounds
           ? (int.x > bounds.minX && int.x < bounds.maxX && int.y > bounds.minY && int.y < bounds.maxY)
           : true;

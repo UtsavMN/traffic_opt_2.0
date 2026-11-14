@@ -35,7 +35,7 @@ export class RLAgent {
 
   observe(intersectionId, engine) {
     const int = engine.intersections.get(intersectionId);
-    if (!int) return;
+    if (!int || !int.isSignalized || !int.trafficLight) return null;
 
     const state = this.encoder.encode(int, engine);
 

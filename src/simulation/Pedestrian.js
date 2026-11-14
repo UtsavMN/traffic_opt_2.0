@@ -59,7 +59,7 @@ export class Pedestrian {
           if (dist < 30 && dist > 5) {
             this.nearIntersection = int;
             const dir2 = this._getCrossingDirection(int);
-            if (dir2 && !int.trafficLight.canPass(dir2)) {
+            if (dir2 && int.isSignalized && int.trafficLight && !int.trafficLight.canPass(dir2)) {
               this.state = 'waiting_at_crossing';
               int.pedestriansWaiting++;
             } else {
@@ -76,7 +76,7 @@ export class Pedestrian {
           if (dist < 30 && dist > 5) {
             this.nearIntersection = int;
             const dir2 = this._getCrossingDirection(int);
-            if (dir2 && !int.trafficLight.canPass(dir2)) {
+            if (dir2 && int.isSignalized && int.trafficLight && !int.trafficLight.canPass(dir2)) {
               this.state = 'waiting_at_crossing';
               int.pedestriansWaiting++;
             } else {
@@ -93,7 +93,7 @@ export class Pedestrian {
       if (!int) { this.state = 'walking'; return; }
 
       const dir2 = this._getCrossingDirection(int);
-      if (dir2 && int.trafficLight.canPass(dir2)) {
+      if (!int.isSignalized || !int.trafficLight || (dir2 && int.trafficLight.canPass(dir2))) {
         this.state = 'crossing';
         this.crossingProgress = 0;
         int.pedestriansWaiting = Math.max(0, int.pedestriansWaiting - 1);

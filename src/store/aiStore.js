@@ -8,6 +8,9 @@ export const useAIStore = create((set) => ({
   trainingSteps: 0,
   replaySize: 0,
   epsilon: 1.0,
+  pythonBackendConnected: false,
+
+  setPythonBackendConnected: (connected) => set({ pythonBackendConnected: connected }),
 
   // Dynamic model arbitration stats
   dynamicStats: {

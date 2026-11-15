@@ -81,6 +81,8 @@ export class Vehicle {
     this.arrivalAlpha = 1.0;
     this.hasCompleted = false;
     this.clearingJunction = false;
+    this.lastLaneChangeTime = 0;
+    this.engine = null;
     
     this.currentEdgeId = null;
     this.laneIndex = undefined;
@@ -110,10 +112,20 @@ export class Vehicle {
     const edge = this.currentEdge;
     if (!edge) return null;
     if (edge.cardinalDir) return edge.cardinalDir;
-    const from = this.graph.nodes.get(edge.from);
-    const to = this.graph.nodes.get(edge.to);
-    if (!from || !to) return null;
-    const dx = to.x - from.x, dy = to.y - from.y;
+    const geom = edge.geometry;
+    let dx, dy;
+    if (geom && geom.length >= 2) {
+      const pEnd = geom[geom.length - 1];
+      const pPrev = geom[geom.length - 2];
+      dx = pEnd.x - pPrev.x;
+      dy = pEnd.y - pPrev.y;
+    } else {
+      const from = this.graph.nodes.get(edge.from);
+      const to = this.graph.nodes.get(edge.to);
+      if (!from || !to) return null;
+      dx = to.x - from.x;
+      dy = to.y - from.y;
+    }
     edge.cardinalDir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'E' : 'W') : (dy > 0 ? 'S' : 'N');
     return edge.cardinalDir;
   }
@@ -320,8 +332,9 @@ export class Vehicle {
 
         // Spatial speed adaptation at different points:
         if (distToStopLine <= 0) {
-          if (lightColor === 'GREEN' || lightColor === 'YELLOW' || this.sirenActive) {
-            this.clearingJunction = true; // Legally entered on green or yellow
+          // A vehicle enters the junction legally ONLY if light is GREEN (or active emergency siren) and moving forward
+          if ((lightColor === 'GREEN' || this.sirenActive) && this.speed > 0.5) {
+            this.clearingJunction = true;
           }
           if (this.clearingJunction) {
             // Inside intersection box: accelerate briskly to clear junction rapidly
@@ -357,14 +370,11 @@ export class Vehicle {
         // Strict Red / Yellow Signal Obedience (No bypassing unless active emergency siren)
         const isRedOrYellow = (lightColor !== 'GREEN');
         if (isRedOrYellow && !this.sirenActive && !this.clearingJunction) {
-          // Check if vehicle is approaching or at the stop line
-          if (distToStopLine > -12 * CANVAS_SCALE) {
-            stopAtIntersection = true;
-            intersectionGap = Math.max(0.5, distToStopLine - (this.length / 2));
-            // Hold vehicle firmly stopped when at stop line, preventing speed creeping
-            if (distToStopLine <= 4.0 * CANVAS_SCALE) {
-              this.speed = 0;
-            }
+          stopAtIntersection = true;
+          intersectionGap = Math.max(0.1, distToStopLine - (this.length / 2));
+          // Hold vehicle firmly stopped when at or past the stop line, preventing creeping
+          if (distToStopLine <= 2.5 * CANVAS_SCALE) {
+            this.speed = 0;
           }
         } else if (!stopAtIntersection && distToStopLine > 0 && distToStopLine < 30 * CANVAS_SCALE) {
           // Yellow Box Rule ("Do Not Block The Box"):
@@ -495,7 +505,19 @@ export class Vehicle {
     // --- 5. Move & Progress ---
     if (this.speed > 0 && edge.length > 0) {
       const advance = (this.speed * dt) / edge.length;
-      this.segmentProgress += advance;
+      let nextProgress = this.segmentProgress + advance;
+
+      // Hard Physics Safety Barrier:
+      // If stopped/approaching a red/yellow light and not legally clearing, progress CANNOT cross the stop line
+      if (stopAtIntersection && !this.clearingJunction && !this.sirenActive) {
+        const maxAllowedProgress = Math.max(0, (edge.length - stopLineDist) / edge.length);
+        if (nextProgress >= maxAllowedProgress) {
+          nextProgress = maxAllowedProgress;
+          this.speed = 0;
+        }
+      }
+
+      this.segmentProgress = nextProgress;
       this.distanceTravelled += this.speed * dt;
       
       if (this.segmentProgress >= 1) {

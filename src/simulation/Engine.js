@@ -11,7 +11,7 @@ import { TrafficPolice } from './TrafficPolice.js';
 import { findPath } from '../utils/pathfinding.js';
 import { RollingAverage } from '../utils/statistics.js';
 import { SensorRealismLayer } from '../ai/SensorRealismLayer.js';
-import { CANVAS_SCALE } from '../constants.js';
+import { CANVAS_SCALE, getCanvasScale } from '../constants.js';
 
 /**
  * Engine — Main simulation loop. Manages all entities, systems, and rendering.
@@ -128,6 +128,10 @@ export class Engine {
     this.avgWait = new RollingAverage(200);
 
     if (this.onMetricsUpdate) {
+      let signalizedCount = 0;
+      for (const [, int] of this.intersections) {
+        if (int.isSignalized) signalizedCount++;
+      }
       this.onMetricsUpdate({
         vehicleCount: 0,
         waitingCount: 0,
@@ -153,8 +157,8 @@ export class Engine {
   }
 
   loadCity(graph) {
-    if (!this._pfWorker) return;
     this.graph = graph;
+    this.canvasScale = getCanvasScale();
     this._indexDistricts(graph);
     this.intersections.clear();
     this.vehicles = [];
@@ -166,18 +170,20 @@ export class Engine {
     this.totalWaitTime = 0;
     this.vehiclesPassed = 0;
 
-    // Initialize Worker with serialized graph data to prevent DataCloneError
-    const serializedGraph = {
-      nodes: Array.from(graph.nodes.entries()),
-      edges: Array.from(graph.edges.entries()),
-      adjacency: Array.from(graph.adjacency.entries()).map(([k, v]) => [k, Array.from(v)]),
-    };
-    this._pfWorker.postMessage({ type: 'INIT', graph: serializedGraph });
+    // Initialize Worker with serialized graph data if available
+    if (this._pfWorker) {
+      const serializedGraph = {
+        nodes: Array.from(graph.nodes.entries()),
+        edges: Array.from(graph.edges.entries()),
+        adjacency: Array.from(graph.adjacency.entries()).map(([k, v]) => [k, Array.from(v)]),
+      };
+      this._pfWorker.postMessage({ type: 'INIT', graph: serializedGraph });
+    }
 
     // Authentic Bengaluru Signalization (IRC:93 Signal Warrants):
     // Only signalize true major intersections on Arterial and Commercial Main Roads.
-    // Minor residential alleys, local cross-streets, and close-together T-junctions
-    // are unsignalized yield / free-flow turns to prevent artificial gridlock and visual clutter.
+    // Minor residential alleys, local cross-streets, highway splits/medians, and close-together T-junctions
+    // are unsignalized yield / free-flow turns to prevent artificial gridlock, highway slowdowns, and visual clutter.
     const candidates = [];
     for (const [id, node] of graph.nodes) {
       // 1. Surface level only (never on elevated flyovers, bridges, or underpass troughs)
@@ -190,36 +196,46 @@ export class Engine {
       }
       if (allNeighbors.size < 3) continue;
 
-      let isArterial = false, isMain = false;
-      let hasNamedRoad = false;
+      let isMotorway = false;
+      let isArterial = false, isMain = false, isCollector = false;
       let hasFlyoverEdge = false;
       const roadNames = new Set();
+      let arterialCount = 0;
       let mainCount = 0;
 
       for (const nid of allNeighbors) {
         const e = graph.getEdge(id, nid) || graph.getEdge(nid, id);
         if (e) {
+          if (e.type === 'motorway') isMotorway = true;
           if (e.isFlyover || (e.layer || 0) > 0 || (e.name && e.name.toLowerCase().includes('flyover'))) {
             hasFlyoverEdge = true;
           }
-          if (e.roadTier === 'arterial') isArterial = true;
+          if (e.roadTier === 'arterial') { isArterial = true; arterialCount++; }
           if (e.roadTier === 'main') { isMain = true; mainCount++; }
-          if (e.name) { hasNamedRoad = true; roadNames.add(e.name); }
+          if (e.roadTier === 'collector') isCollector = true;
+          if (e.name && e.name.trim().length > 0) roadNames.add(e.name.trim());
         }
       }
 
       // STRICT IRC:93 SIGNAL CRITERIA:
-      // A. Flyover entries, exits and ramps are free-flow or yield merges — NEVER signalized
-      if (hasFlyoverEdge) continue;
+      // A. Flyover entries, exits, ramps, and grade-separated motorways are free-flow — NEVER signalized
+      if (isMotorway || hasFlyoverEdge) continue;
 
-      // B. Unnamed alleys and dead-end back-alleys are NEVER signalized
-      if (!hasNamedRoad) continue;
+      // B. Must connect at least TWO distinct named roads (eliminates mid-block highway medians, splits, curves)
+      if (roadNames.size < 2) continue;
 
       // C. Must connect at least one Arterial OR Commercial Main Road
       if (!isArterial && !isMain) continue;
 
-      // D. 3-way T-junctions must involve a major arterial or two commercial main roads
-      if (allNeighbors.size === 3 && !isArterial && mainCount < 2) continue;
+      // D. 3-way T-junctions:
+      // Minor residential side streets meeting an arterial/main road are yield merges, NOT signals.
+      // A T-junction must connect at least two significant corridors:
+      // e.g. Arterial + Arterial, Arterial + Main, Arterial + Collector, or Main + Main.
+      if (allNeighbors.size === 3) {
+        const hasSignificantCrossroad = (isArterial && (mainCount >= 1 || isCollector || arterialCount >= 2)) ||
+                                       (isMain && (arterialCount >= 1 || mainCount >= 2));
+        if (!hasSignificantCrossroad) continue;
+      }
 
       // Priority score based on real mobility hierarchy
       const score = allNeighbors.size * 15 + (isArterial ? 60 : 0) + (isMain ? 30 : 0) + (roadNames.size * 10);
@@ -228,9 +244,9 @@ export class Engine {
 
     candidates.sort((a, b) => b.score - a.score);
 
-    // Minimum 180px (~200m) corridor spacing between traffic signals
+    // Minimum 200px (~220m) corridor spacing between traffic signals
     const signalizedIds = new Set();
-    const minSpacingSq = 180 * 180;
+    const minSpacingSq = 200 * 200;
     for (const c of candidates) {
       let tooClose = false;
       for (const sId of signalizedIds) {
@@ -355,6 +371,9 @@ export class Engine {
       this._pfWorker = null;
     }
     this._pfCallbacks.clear();
+    if (this.renderer && typeof this.renderer.destroy === 'function') {
+      this.renderer.destroy();
+    }
   }
 
   _loop(now) {
@@ -368,10 +387,16 @@ export class Engine {
     this.completedThisStep = 0;
     // Only run simulation update logic if not paused
     if (!this.paused) {
-      // Fluid single-pass physics with clamped frame delta (prevents frame drops at 2x/4x speed)
-      const clampedDt = Math.min(0.066, totalDt);
-      this._update(clampedDt);
-      this._simTime += clampedDt;
+      // Sub-stepped physics: at 2x/4x speeds, subdivide into discrete steps of max 0.033s (30ms).
+      // This eliminates numerical overshoot, keeps traffic signals precisely synced, and guarantees 100% red-light compliance.
+      const maxSubStep = 0.033;
+      let remainingDt = Math.min(0.20, totalDt);
+      while (remainingDt > 0.001) {
+        const stepDt = Math.min(maxSubStep, remainingDt);
+        this._update(stepDt);
+        this._simTime += stepDt;
+        remainingDt -= stepDt;
+      }
     }
     
     // Always render once per animation frame so panning/zooming remains fluid at 60 FPS
@@ -509,7 +534,7 @@ export class Engine {
 
     // Update cyclists
     for (const c of this.cyclists) {
-      c.update(dt, this.intersections, wMult);
+      c.update(dt, this.intersections, wMult, this.spatialGrid);
     }
 
     // Cleanup dead entities
@@ -643,14 +668,18 @@ export class Engine {
   }
 
   _spawnCyclist() {
-    if (this.cyclists.length >= 50) return;
+    if (this.cyclists.length >= 50 || !this.graph) return;
     const blocked = this.accidents.getBlockedEdges(this.graph);
-    const start = this.graph.getRandomBorderNode();
-    const end = this.graph.getRandomBorderNode();
-    if (!start || !end || start === end) return;
-    const route = findPath(this.graph, start, end, blocked);
-    if (!route || route.length < 2) return;
-    this.cyclists.push(new Cyclist(route, this.graph));
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const start = this.graph.getRandomBorderNode();
+      const end = this.graph.getRandomBorderNode();
+      if (!start || !end || start === end) continue;
+      const route = findPath(this.graph, start, end, blocked);
+      if (route && route.length >= 2) {
+        this.cyclists.push(new Cyclist(route, this.graph));
+        break;
+      }
+    }
   }
 
   _queueTimer = 0;

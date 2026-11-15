@@ -44,6 +44,8 @@ export class VehiclePool {
     v.alive = false;
     v.route = null;
     v.graph = null;
+    v.engine = null;
+    v.lastLaneChangeTime = 0;
     this._pool.push(v);
   }
 }

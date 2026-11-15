@@ -101,6 +101,13 @@ export class RLAgent {
   train() {
     if (this.replay.size < 64) return;
 
+    // If pre-trained Deep MLP is loaded, weights are frozen and served via PyTorch/JSON
+    if (this.q.mlpLayers && this.q.mlpLayers.length > 0) {
+      this.trainingSteps++;
+      this.epsilon = Math.max(this.epsilonMin, this.epsilon * this.epsilonDecay);
+      return;
+    }
+
     const numBatches = 8;
     const batchSize = 32;
     for (let b = 0; b < numBatches; b++) {

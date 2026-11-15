@@ -16,17 +16,18 @@ export class StateEncoder {
     const est = sensorRealism ? sensorRealism.getEstimatedQueues(int.id) : int.queues;
 
     // Calculate downstream queue estimates (for pressure calculation)
-    const neighbors = engine.graph.getNeighbors(int.id);
+    const neighbors = engine.graph ? engine.graph.getNeighbors(int.id) : [];
     let downstreamTotal = 0;
-    let downstreamCount = 0;
+    let downstreamLanes = 0;
     for (const nId of neighbors) {
       const nEst = sensorRealism ? sensorRealism.getEstimatedQueues(nId) : engine.intersections.get(nId)?.queues;
       if (nEst) {
         downstreamTotal += (nEst.N + nEst.S + nEst.E + nEst.W);
-        downstreamCount++;
+        const nInt = engine.intersections ? engine.intersections.get(nId) : null;
+        downstreamLanes += nInt ? Math.max(2, (nInt.maxLanes || 2) * 2) : 4;
       }
     }
-    const avgDownstream = downstreamCount > 0 ? (downstreamTotal / downstreamCount) / 4 : 0; // Avg downstream per lane
+    const avgDownstream = downstreamLanes > 0 ? (downstreamTotal / downstreamLanes) : 0; // Avg downstream per lane
 
     // Compute local pressure per direction
     const pN = Math.max(0, est.N - avgDownstream);
@@ -48,10 +49,12 @@ export class StateEncoder {
     // GNN-style Message Passing (1-hop permutation invariant neighbor aggregation)
     let sumNeighborActive = 0;
     let sumNeighborOpposing = 0;
+    let signalizedNeighborCount = 0;
     
     for (const nId of neighbors) {
       const ni = engine.intersections.get(nId);
       if (!ni || !ni.isSignalized || !ni.trafficLight) continue;
+      signalizedNeighborCount++;
       const nEst = sensorRealism ? sensorRealism.getEstimatedQueues(nId) : ni.queues;
       const nIsNS = ni.trafficLight.currentPhase ? ni.trafficLight.currentPhase.includes('NS') : true;
       
@@ -66,8 +69,8 @@ export class StateEncoder {
       sumNeighborOpposing += Math.min(1, nOpposing / (maxQ * 2));
     }
 
-    const avgNeighborActive = downstreamCount > 0 ? sumNeighborActive / downstreamCount : 0;
-    const avgNeighborOpposing = downstreamCount > 0 ? sumNeighborOpposing / downstreamCount : 0;
+    const avgNeighborActive = signalizedNeighborCount > 0 ? sumNeighborActive / signalizedNeighborCount : 0;
+    const avgNeighborOpposing = signalizedNeighborCount > 0 ? sumNeighborOpposing / signalizedNeighborCount : 0;
 
     // Context features (pure vehicular traffic - pedestrians removed)
     const pedWaiting = 0.0;

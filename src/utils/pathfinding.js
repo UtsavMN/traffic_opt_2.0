@@ -10,14 +10,16 @@ export function findPath(graph, startId, endId, blockedEdges = new Set(), jammed
   const open = new MinHeap();
   const gScore = new Map([[startId, 0]]);
   const cameFrom = new Map();
+  const closed = new Set();
   const h = (id) => {
     const a = graph.nodes.get(id), b = graph.nodes.get(endId);
+    if (!a || !b) return 0;
     return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
   };
   open.push({ id: startId, f: h(startId) });
   
   let steps = 0;
-  const maxSteps = 800; // Bound worst-case search on one-way loops / disconnected pockets
+  const maxSteps = 2500; // Bound worst-case search on one-way loops / disconnected pockets
   while (open.size > 0 && steps++ < maxSteps) {
     const { id: cur } = open.pop();
     if (cur === endId) {
@@ -27,7 +29,11 @@ export function findPath(graph, startId, endId, blockedEdges = new Set(), jammed
       return path;
     }
     
+    if (closed.has(cur)) continue;
+    closed.add(cur);
+    
     for (const nid of graph.getNeighbors(cur)) {
+      if (closed.has(nid)) continue;
       const edgeKey = `${cur}->${nid}`;
       if (blockedEdges && blockedEdges.has(edgeKey)) continue;
       

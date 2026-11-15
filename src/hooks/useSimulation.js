@@ -7,6 +7,7 @@ import { useSimStore } from '../store/simStore.js';
 import { useAIStore } from '../store/aiStore.js';
 import { useUIStore } from '../store/uiStore.js';
 import { useMetricsStore } from '../store/metricsStore.js';
+import { pythonClient } from '../ai/PythonBackendClient.js';
 
 /**
  * useSimulation — Manages engine lifecycle, bridges engine state to Zustand
@@ -66,11 +67,13 @@ export function useSimulation() {
       updateMetrics(data);
       pushSnapshot({
         vehicleCount: data.vehicleCount,
+        waitingCount: data.waitingCount || 0,
         avgWaitTime: data.avgWaitTime,
         throughput: data.throughput,
         spawnRate: data.spawnRate,
         congestionLevel: data.congestionLevel,
         avgSpeedKmh: data.avgSpeedKmh,
+        avgImbalance: data.avgImbalance || 0,
       });
 
       // Update RL coordinator
@@ -87,7 +90,16 @@ export function useSimulation() {
       console.error("Failed to load default scenario:", e);
     });
 
+    // Python backend health check (runs quietly in background)
+    const checkPython = async () => {
+      const isOnline = await pythonClient.checkHealth();
+      useAIStore.getState().setPythonBackendConnected(isOnline);
+    };
+    checkPython();
+    const pythonInterval = setInterval(checkPython, 5000);
+
     return () => {
+      clearInterval(pythonInterval);
       engine.destroy();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

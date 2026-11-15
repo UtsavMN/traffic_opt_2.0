@@ -70,21 +70,44 @@ export class Cyclist {
     this.heading = Math.atan2(dy, dx);
   }
 
-  update(dt, intersections, weatherMult = 1) {
+  update(dt, intersections, weatherMult = 1, spatialGrid = null) {
     if (!this.alive) return;
     const edge = this.currentEdge;
     if (!edge) { this.alive = false; return; }
 
-    let desiredSpeed = Math.min(this.maxSpeed, edge.speedLimit * 0.5) * weatherMult;
+    const scale = (typeof CANVAS_SCALE !== 'undefined' ? CANVAS_SCALE : 1) || 1;
+    const speedLimitPxS = (edge.speedLimit * 1000 / 3600) * scale;
+    let desiredSpeed = Math.min(this.maxSpeed, speedLimitPxS * 0.55) * weatherMult;
+
+    // Proximity gap check (avoid overlapping lead entities on the shoulder)
+    if (spatialGrid) {
+      const nearby = spatialGrid.query(this.pos.x, this.pos.y, 25 * scale);
+      for (const other of nearby) {
+        if (other.id === this.id || !other.alive) continue;
+        if (other.currentEdge?.id === edge.id && other.segmentProgress > this.segmentProgress) {
+          const gap = (other.segmentProgress - this.segmentProgress) * edge.length;
+          if (gap < 14 * scale) {
+            desiredSpeed = Math.min(desiredSpeed, other.speed || 0);
+            if (gap < 6 * scale) desiredSpeed = 0;
+            break;
+          }
+        }
+      }
+    }
 
     // Traffic light check
-    if (this.segmentProgress > 0.7) {
-      const intObj = intersections.get(this.route[this.routeIndex + 1]);
-      if (intObj && intObj.isSignalized && intObj.trafficLight) {
-        const dir = this._getDirection();
-        if (dir && !intObj.trafficLight.canPass(dir)) {
-          const rem = (1 - this.segmentProgress) * edge.length;
-          if (rem < 30) desiredSpeed = 0;
+    let stopAtLight = false;
+    let stopDist = 14;
+    const intObj = intersections.get(this.route[this.routeIndex + 1]);
+    if (intObj && intObj.isSignalized && intObj.trafficLight) {
+      const dir = this._getDirection();
+      if (dir && !intObj.trafficLight.canPass(dir)) {
+        stopDist = Math.max(12, (intObj.maxLanes || 2) * 2.85 * (typeof CANVAS_SCALE !== 'undefined' ? CANVAS_SCALE : 1) * 0.65);
+        const rem = (1 - this.segmentProgress) * edge.length - stopDist;
+        if (rem < 35) {
+          desiredSpeed = 0;
+          stopAtLight = true;
+          if (rem <= 2) this.speed = 0;
         }
       }
     }
@@ -99,7 +122,16 @@ export class Cyclist {
     else { this.state = 'moving'; }
 
     if (this.speed > 0 && edge.length > 0) {
-      this.segmentProgress += (this.speed * dt) / edge.length;
+      const advance = (this.speed * dt) / edge.length;
+      let nextProgress = this.segmentProgress + advance;
+      if (stopAtLight) {
+        const maxProg = Math.max(0, (edge.length - stopDist) / edge.length);
+        if (nextProgress >= maxProg) {
+          nextProgress = maxProg;
+          this.speed = 0;
+        }
+      }
+      this.segmentProgress = nextProgress;
       if (this.segmentProgress >= 1) {
         this.segmentProgress = 0;
         this.routeIndex++;

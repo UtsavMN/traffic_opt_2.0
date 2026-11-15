@@ -330,7 +330,8 @@ export class AdaptiveController {
   }
 
   _executeRLAction(int, actionName) {
-    const tl = int.trafficLight;
+    const tl = int ? int.trafficLight : null;
+    if (!tl) return;
     const currentIsNS = tl.currentPhase === 'NS_GREEN';
 
     switch (actionName) {
@@ -345,6 +346,7 @@ export class AdaptiveController {
   }
 
   _computeReward(int, decision, completedThisStep = 0) {
+    if (!int) return 0;
     const w1 = 12.0;
     const w2 = 2.0;
     const w3 = 1.0;
@@ -354,7 +356,8 @@ export class AdaptiveController {
     const rThroughput = w2 * completedThisStep;
 
     // 2. Pressure Reduction
-    const currentIsNS = int.trafficLight.currentPhase.includes('NS');
+    const tl = int.trafficLight;
+    const currentIsNS = tl ? (tl.currentPhase ? tl.currentPhase.includes('NS') : true) : true;
     const qActive = currentIsNS ? int.getQueueNS() : int.getQueueEW();
     const qOpposing = currentIsNS ? int.getQueueEW() : int.getQueueNS();
     const normActive = Math.min(1, qActive / 40);
@@ -374,8 +377,7 @@ export class AdaptiveController {
     // 4. Waiting & Delay Penalty
     const totalQ = int.getTotalQueue();
     const queueDelay = Math.min(1, totalQ / 40);
-    const tl = int.trafficLight;
-    const maxRed = Math.max(tl.redDurationNS || 0, tl.redDurationEW || 0);
+    const maxRed = tl ? Math.max(tl.redDurationNS || 0, tl.redDurationEW || 0) : 0;
     const starvationDelay = maxRed > 30 ? Math.min(2.0, Math.pow((maxRed - 30) / 20, 1.5)) : 0.0;
     const rWait = -w4 * (queueDelay + starvationDelay);
 

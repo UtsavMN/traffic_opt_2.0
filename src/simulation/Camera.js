@@ -59,7 +59,7 @@ export class Camera {
 
   _bind() {
     // Zoom toward cursor
-    this._canvas.addEventListener('wheel', e => {
+    this._onWheel = (e) => {
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.15 : 0.87;
       const before = this.screenToWorld(e.offsetX, e.offsetY);
@@ -67,29 +67,45 @@ export class Camera {
       const after = this.screenToWorld(e.offsetX, e.offsetY);
       this.x += before.x - after.x;
       this.y += before.y - after.y;
-    }, { passive: false });
+    };
+    this._canvas.addEventListener('wheel', this._onWheel, { passive: false });
 
     // Pan
-    this._canvas.addEventListener('mousedown', e => {
+    this._onMouseDown = (e) => {
       if (e.button === 0) {
         this._drag = true;
         this._lx = e.clientX;
         this._ly = e.clientY;
       }
-    });
+    };
+    this._canvas.addEventListener('mousedown', this._onMouseDown);
 
-    window.addEventListener('mousemove', e => {
+    this._onMouseMove = (e) => {
       if (!this._drag) return;
       this.x -= (e.clientX - this._lx) / this.zoom;
       this.y -= (e.clientY - this._ly) / this.zoom;
       this._lx = e.clientX;
       this._ly = e.clientY;
-    });
+    };
+    window.addEventListener('mousemove', this._onMouseMove);
 
-    window.addEventListener('mouseup', () => { this._drag = false; });
+    this._onMouseUp = () => { this._drag = false; };
+    window.addEventListener('mouseup', this._onMouseUp);
   }
 
   destroy() {
-    // Cleanup listeners would go here in production
+    if (this._onWheel && this._canvas) {
+      this._canvas.removeEventListener('wheel', this._onWheel);
+    }
+    if (this._onMouseDown && this._canvas) {
+      this._canvas.removeEventListener('mousedown', this._onMouseDown);
+    }
+    if (this._onMouseMove) {
+      window.removeEventListener('mousemove', this._onMouseMove);
+    }
+    if (this._onMouseUp) {
+      window.removeEventListener('mouseup', this._onMouseUp);
+    }
+    this._drag = false;
   }
 }

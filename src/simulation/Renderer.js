@@ -810,13 +810,13 @@ export class Renderer {
         ctx.translate(s.x, s.y);
         ctx.rotate(v.heading);
         ctx.globalAlpha = v.arrivalAlpha !== undefined ? v.arrivalAlpha : 1.0;
+        const l = v.length * z * 0.5 * visualScale;
+        const w = v.width * z * 0.5 * visualScale;
         if ((v.layer || 0) > 0) {
           ctx.fillStyle = 'rgba(0,0,0,0.35)';
           ctx.fillRect(-l, -w + 2 * z, l * 2, w * 2);
         }
         ctx.fillStyle = v.type === 'emergency' ? '#FF3B5C' : v.color;
-        const l = v.length * z * 0.5 * visualScale;
-        const w = v.width * z * 0.5 * visualScale;
         ctx.fillRect(-l, -w, l * 2, w * 2);
         ctx.restore();
         continue;
@@ -1198,6 +1198,15 @@ export class Renderer {
       }
     }
     ctx.restore();
+  }
+
+  destroy() {
+    if (this.camera && typeof this.camera.destroy === 'function') {
+      this.camera.destroy();
+    }
+    this._surfaceRoadCanvas = null;
+    this._surfaceRoadCtx = null;
+    this.roadCaches.clear();
   }
 }
 

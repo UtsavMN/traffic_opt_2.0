@@ -46,7 +46,10 @@ export class AccidentSystem {
     // Mark edge as blocked
     edge.blocked = lanesBlocked;
     const rev = graph.edges.get(accident.edgeIdReverse);
-    if (rev) rev.blocked = lanesBlocked;
+    // Only block opposing carriageway if undivided narrow street
+    if (rev && edge.divider === 'none' && (edge.lanes || 1) <= 1) {
+      rev.blocked = lanesBlocked;
+    }
 
     return accident;
   }
@@ -54,13 +57,23 @@ export class AccidentSystem {
   clearAccident(id, graph) {
     const acc = this.accidents.get(id);
     if (!acc) return;
-    if (graph && graph.edges) {
-      const edge = graph.edges.get(acc.edgeId);
-      if (edge) edge.blocked = 0;
-      const rev = graph.edges.get(acc.edgeIdReverse);
-      if (rev) rev.blocked = 0;
-    }
     this.accidents.delete(id);
+
+    if (graph && graph.edges) {
+      // Re-evaluate blockage for this edge from any remaining accidents
+      let remainingLanes = 0;
+      for (const remaining of this.accidents.values()) {
+        if (remaining.edgeId === acc.edgeId) {
+          remainingLanes = Math.max(remainingLanes, remaining.lanesBlocked);
+        }
+      }
+      const edge = graph.edges.get(acc.edgeId);
+      if (edge) edge.blocked = remainingLanes;
+      const rev = graph.edges.get(acc.edgeIdReverse);
+      if (rev && edge && edge.divider === 'none' && (edge.lanes || 1) <= 1) {
+        rev.blocked = remainingLanes;
+      }
+    }
   }
 
   clearAll(graph = null) {

@@ -50,9 +50,10 @@ export async function loadScenario(scenarioId, engine) {
   else engine.hospitals = [];
 
   // Center camera on sector if camera params provided
-  if (result.config && result.config.cameraParams && engine.camera) {
+  const camera = engine.renderer?.camera || engine.camera;
+  if (result.config && result.config.cameraParams && camera) {
     const cp = result.config.cameraParams;
-    engine.camera.centerOn(cp.x, cp.y, cp.zoom);
+    camera.centerOn(cp.x, cp.y, cp.zoom);
   }
 
   // Apply config

@@ -29,6 +29,7 @@ export class Intersection {
     this.policeActive = false;
     this.policeDirection = null;
     this.policeOverrideTimer = 0;
+    this.policeInitialTransitionTriggered = false;
     // Callback for green phase tracking (set externally to decouple from React)
     this.onGreenPhaseEnd = null;
     this.lastObservedPhase = this.trafficLight ? this.trafficLight.currentPhase : 'FREE_FLOW';
@@ -66,8 +67,9 @@ export class Intersection {
             this.trafficLight.forcePhase(currentIsNS ? 1 : 3); // Brisk yellow transition
           }
         }
-      } else if (this.policeOverrideTimer === dt && this.policeDirection) {
+      } else if (!this.policeInitialTransitionTriggered && this.policeDirection) {
         // Initial dispatch priority
+        this.policeInitialTransitionTriggered = true;
         const currentIsNS = this.trafficLight.currentPhase.includes('NS');
         if ((this.policeDirection === 'N' && !currentIsNS) || (this.policeDirection === 'E' && currentIsNS)) {
           this.trafficLight.forcePhase(currentIsNS ? 1 : 3);
@@ -78,6 +80,7 @@ export class Intersection {
       if (this.getTotalQueue() === 0 && this.policeOverrideTimer > 5) {
         this.policeActive = false;
         this.policeOverrideTimer = 0;
+        this.policeInitialTransitionTriggered = false;
       }
     }
 

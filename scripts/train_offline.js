@@ -15,7 +15,7 @@ const WEIGHTS_DIR = path.join(__dirname, '../public/weights');
 
 const EPISODES = 1500;
 const STEPS_PER_EPISODE = 200;
-const ACTIONS = ['KEEP_PHASE', 'SWITCH_PHASE', 'EXTEND_PHASE', 'PEDESTRIAN_SCRAMBLE'];
+const ACTIONS = ['KEEP_PHASE', 'SWITCH_PHASE'];
 
 function generateRandomDomain() {
   const isGrid = Math.random() > 0.5;
@@ -76,6 +76,7 @@ class MockEngine {
       const id = `node_${i}`;
       this.intersections.set(id, {
         id,
+        isSignalized: true,
         trafficLight: new MockTrafficLight(),
         queues: { N: 0, S: 0, E: 0, W: 0 },
         pedestriansWaiting: 0,
@@ -146,11 +147,6 @@ async function train() {
         // Apply action to environment
         if (action === 'SWITCH_PHASE') {
           int.trafficLight.switchPhase();
-        } else if (action === 'EXTEND_PHASE') {
-          int.trafficLight.phaseProgress = Math.max(0, int.trafficLight.phaseProgress - 0.2);
-        } else if (action === 'PEDESTRIAN_SCRAMBLE') {
-           int.pedestriansWaiting = 0;
-           int.trafficLight.switchPhase(); // simplified scramble effect
         }
         
         // Hack: read the last reward calculated during observe() to track progress

@@ -12,6 +12,7 @@ const ACTION_LABELS = {
 
 export default function AIBrainPanel({ getIntersectionData }) {
   const mode = useAIStore(s => s.mode);
+  const pythonBackendConnected = useAIStore(s => s.pythonBackendConnected);
   const rewardHistory = useAIStore(s => s.rewardHistory);
   const decisions = useAIStore(s => s.decisions);
   const trainingSteps = useAIStore(s => s.trainingSteps);
@@ -46,12 +47,38 @@ export default function AIBrainPanel({ getIntersectionData }) {
       <div className="panel-section">
         <div className="panel-section__title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>AI Engine</span>
-          {mode === 'DYNAMIC_AUTO' && (
-            <span style={{ fontSize: 9, color: 'var(--signal-purple)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#9B6FFF', display: 'inline-block', boxShadow: '0 0 6px #9B6FFF' }} />
-              AUTONOMOUS
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{
+              fontSize: 9,
+              fontWeight: 600,
+              padding: '2px 6px',
+              borderRadius: 4,
+              letterSpacing: '0.04em',
+              background: pythonBackendConnected ? 'rgba(0, 232, 122, 0.12)' : 'rgba(100, 116, 139, 0.15)',
+              color: pythonBackendConnected ? '#00E87A' : '#94A3B8',
+              border: `1px solid ${pythonBackendConnected ? 'rgba(0, 232, 122, 0.3)' : 'rgba(100, 116, 139, 0.25)'}`,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4
+            }}
+            title={pythonBackendConnected ? 'Connected to local FastAPI PyTorch Double-DQN backend (localhost:8000)' : 'Running embedded JavaScript GNN / Neural Q-approximator policy'}
+            >
+              <span style={{
+                width: 5,
+                height: 5,
+                borderRadius: '50%',
+                background: pythonBackendConnected ? '#00E87A' : '#64748B',
+                boxShadow: pythonBackendConnected ? '0 0 6px #00E87A' : 'none'
+              }} />
+              {pythonBackendConnected ? 'PYTHON ML: ONLINE' : 'JS LOCAL POLICY'}
             </span>
-          )}
+            {mode === 'DYNAMIC_AUTO' && (
+              <span style={{ fontSize: 9, color: 'var(--signal-purple)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#9B6FFF', display: 'inline-block', boxShadow: '0 0 6px #9B6FFF' }} />
+                AUTONOMOUS
+              </span>
+            )}
+          </div>
         </div>
         <div className="ai-mode-steps">
           <div 

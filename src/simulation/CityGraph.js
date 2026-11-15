@@ -18,11 +18,13 @@ export class CityGraph {
       if (n.y > maxY) maxY = n.y;
     }
     this.bounds = { minX, minY, maxX, maxY };
+    this._cachedBorderNodes = null;
   }
 
   addNode(id, x, y, type = 'junction', zone = 'residential', layer = 0) {
     this.nodes.set(id, { id, x, y, type, zone, layer: layer || 0, connections: [] });
     if (!this.adjacency.has(id)) this.adjacency.set(id, new Set());
+    this._cachedBorderNodes = null;
   }
 
   addEdge(fromId, toId, lanes = 2, type = 'local', speedLimit = 40, geometry = null, roadTier = 'cross', laneWidthM = 2.85, name = '', divider = 'none', layer = 0, isBridge = false, isTunnel = false) {
@@ -91,11 +93,22 @@ export class CityGraph {
   }
 
   getBorderNodes() {
-    const border = [];
-    for (const [id, node] of this.nodes) {
-      const neighbors = this.adjacency.get(id);
-      if (neighbors && neighbors.size < 4) border.push(id);
+    if (this._cachedBorderNodes && this._cachedBorderNodes.length > 0) {
+      return this._cachedBorderNodes;
     }
+    const border = [];
+    const b = this.bounds || { minX: 0, maxX: 4000, minY: 0, maxY: 4000 };
+    const pad = 160;
+    for (const [id, node] of this.nodes) {
+      if (node.x <= b.minX + pad || node.x >= b.maxX - pad ||
+          node.y <= b.minY + pad || node.y >= b.maxY - pad) {
+        border.push(id);
+      }
+    }
+    if (border.length === 0) {
+      for (const [id] of this.nodes) border.push(id);
+    }
+    this._cachedBorderNodes = border;
     return border;
   }
 

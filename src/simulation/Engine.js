@@ -221,32 +221,31 @@ export class Engine {
       // A. Flyover entries, exits, ramps, and grade-separated motorways are free-flow — NEVER signalized
       if (isMotorway || hasFlyoverEdge) continue;
 
-      // B. Must connect at least TWO distinct named roads (eliminates mid-block highway medians, splits, curves)
-      if (roadNames.size < 2) continue;
+      // B. Highway splits & medians check:
+      // If a node only has 1 road name across all incident edges and degree == 3,
+      // it's a mid-block highway median, lane split, or U-turn bend — NOT an intersection!
+      if (roadNames.size < 2 && allNeighbors.size === 3) continue;
 
-      // C. Must connect at least one Arterial OR Commercial Main Road
-      if (!isArterial && !isMain) continue;
+      // C. 4-way crossroad junctions:
+      // Any surface 4-way or 5-way crossroad connecting named streets or collectors/arterials/main roads warrants signals!
+      const isMajor4Way = allNeighbors.size >= 4 && (isArterial || isMain || isCollector || roadNames.size >= 2);
 
       // D. 3-way T-junctions:
-      // Minor residential side streets meeting an arterial/main road are yield merges, NOT signals.
-      // A T-junction must connect at least two significant corridors:
-      // e.g. Arterial + Arterial, Arterial + Main, Arterial + Collector, or Main + Main.
-      if (allNeighbors.size === 3) {
-        const hasSignificantCrossroad = (isArterial && (mainCount >= 1 || isCollector || arterialCount >= 2)) ||
-                                       (isMain && (arterialCount >= 1 || mainCount >= 2));
-        if (!hasSignificantCrossroad) continue;
-      }
+      // Must involve an arterial or commercial main road, or connect at least two named streets
+      const isMajor3Way = allNeighbors.size === 3 && (isArterial || isMain || (isCollector && roadNames.size >= 2));
+
+      if (!isMajor4Way && !isMajor3Way) continue;
 
       // Priority score based on real mobility hierarchy
-      const score = allNeighbors.size * 15 + (isArterial ? 60 : 0) + (isMain ? 30 : 0) + (roadNames.size * 10);
+      const score = allNeighbors.size * 20 + (isArterial ? 50 : 0) + (isMain ? 30 : 0) + (isCollector ? 15 : 0) + (roadNames.size * 10);
       candidates.push({ id, node, score, x: node.x, y: node.y });
     }
 
     candidates.sort((a, b) => b.score - a.score);
 
-    // Minimum 200px (~220m) corridor spacing between traffic signals
+    // Corridor spacing: 60px (~70m) prevents duplicate split nodes while preserving adjacent crossroads
     const signalizedIds = new Set();
-    const minSpacingSq = 200 * 200;
+    const minSpacingSq = 60 * 60;
     for (const c of candidates) {
       let tooClose = false;
       for (const sId of signalizedIds) {

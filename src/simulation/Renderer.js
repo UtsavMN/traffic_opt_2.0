@@ -594,19 +594,85 @@ export class Renderer {
             ctx.stroke();
           }
 
-          // 1.B: High-visibility Signal Lamp on left roadside curb
-          const curbX = sStop.x - perpX * (carriagewayW + 2.5 * z);
-          const curbY = sStop.y - perpY * (carriagewayW + 2.5 * z);
-          const lampRadius = Math.min(4.0, Math.max(2.0, 1.8 * z));
+          // 1.B: High-visibility Authentic Traffic Signal Head on roadside curb
+          const curbOffset = carriagewayW + 3.0 * z;
+          const curbX = sStop.x - perpX * curbOffset;
+          const curbY = sStop.y - perpY * curbOffset;
 
-          ctx.fillStyle = hex;
-          ctx.beginPath();
-          ctx.arc(curbX, curbY, lampRadius, 0, Math.PI * 2);
-          ctx.fill();
+          if (z >= 1.4) {
+            // Detailed 3-lens signal head facing approaching traffic
+            const roadAngle = Math.atan2(dirY, dirX);
+            ctx.save();
+            ctx.translate(curbX, curbY);
+            ctx.rotate(roadAngle);
 
-          ctx.strokeStyle = '#0F172A';
-          ctx.lineWidth = Math.min(1.2, 0.6 * z);
-          ctx.stroke();
+            const boxW = Math.min(7.0, Math.max(3.8, 2.8 * z));
+            const boxH = Math.min(18.0, Math.max(9.5, 7.2 * z));
+            const lensR = Math.min(2.4, Math.max(1.2, 0.9 * z));
+            const lensSpacing = boxH * 0.28;
+
+            // Signal housing (dark casing with subtle outline)
+            ctx.fillStyle = '#0F172A';
+            ctx.strokeStyle = '#334155';
+            ctx.lineWidth = Math.min(1.2, 0.5 * z);
+            ctx.beginPath();
+            ctx.roundRect(-boxW * 0.5, -boxH * 0.5, boxW, boxH, Math.min(2.0, 0.8 * z));
+            ctx.fill();
+            ctx.stroke();
+
+            // 3 Lenses: RED (top), AMBER (middle), GREEN (bottom)
+            // Lens 1: RED
+            const isRedLit = (appColor === 'RED');
+            ctx.fillStyle = isRedLit ? '#FF3B5C' : '#3F1219';
+            ctx.beginPath();
+            ctx.arc(0, -lensSpacing, lensR, 0, Math.PI * 2);
+            ctx.fill();
+            if (isRedLit && z >= 2.0) {
+              ctx.shadowColor = '#FF3B5C';
+              ctx.shadowBlur = 6 * z;
+              ctx.fill();
+              ctx.shadowBlur = 0;
+            }
+
+            // Lens 2: AMBER
+            const isYellowLit = (appColor === 'YELLOW');
+            ctx.fillStyle = isYellowLit ? '#FFB400' : '#382207';
+            ctx.beginPath();
+            ctx.arc(0, 0, lensR, 0, Math.PI * 2);
+            ctx.fill();
+            if (isYellowLit && z >= 2.0) {
+              ctx.shadowColor = '#FFB400';
+              ctx.shadowBlur = 6 * z;
+              ctx.fill();
+              ctx.shadowBlur = 0;
+            }
+
+            // Lens 3: GREEN
+            const isGreenLit = (appColor === 'GREEN');
+            ctx.fillStyle = isGreenLit ? '#00E87A' : '#062E19';
+            ctx.beginPath();
+            ctx.arc(0, lensSpacing, lensR, 0, Math.PI * 2);
+            ctx.fill();
+            if (isGreenLit && z >= 2.0) {
+              ctx.shadowColor = '#00E87A';
+              ctx.shadowBlur = 6 * z;
+              ctx.fill();
+              ctx.shadowBlur = 0;
+            }
+
+            ctx.restore();
+          } else {
+            // Overview zoom: luminous signal lamp dot
+            const lampRadius = Math.min(5.0, Math.max(2.6, 2.2 * z));
+            ctx.fillStyle = hex;
+            ctx.beginPath();
+            ctx.arc(curbX, curbY, lampRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.strokeStyle = '#0F172A';
+            ctx.lineWidth = Math.min(1.4, 0.8 * z);
+            ctx.stroke();
+          }
           ctx.restore();
         }
       }
@@ -621,21 +687,25 @@ export class Renderer {
       const isYellow = tl.currentPhase ? tl.currentPhase.includes('YELLOW') : false;
       const hubColor = isGreen ? '#00E87A' : (isYellow ? '#FFB400' : '#FF3B5C');
 
-      // Center junction beacon ring
-      const hubR = Math.min(4.5, Math.max(2.0, 2.2 * z));
-      ctx.fillStyle = '#0F172A';
+      // Center junction beacon: bright glowing core + outer phase ring
+      const hubR = Math.min(5.5, Math.max(2.8, 2.5 * z));
+      ctx.fillStyle = hubColor;
       ctx.beginPath();
       ctx.arc(0, 0, hubR, 0, Math.PI * 2);
       ctx.fill();
+
+      // Outer ring
       ctx.strokeStyle = hubColor;
-      ctx.lineWidth = Math.min(1.8, Math.max(0.8, 0.8 * z));
+      ctx.lineWidth = Math.min(2.0, Math.max(1.0, 0.9 * z));
+      ctx.beginPath();
+      ctx.arc(0, 0, hubR * 1.5, 0, Math.PI * 2);
       ctx.stroke();
 
       // Active corridor flow arrow indicating which corridor has green right-of-way
       if (isGreen) {
-        ctx.strokeStyle = '#00E87A';
-        ctx.lineWidth = Math.min(1.8, Math.max(0.9, 0.8 * z));
-        const arm = hubR + Math.min(8, 3.2 * z);
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = Math.min(2.2, Math.max(1.2, 1.0 * z));
+        const arm = hubR + Math.min(9, 3.5 * z);
         ctx.beginPath();
         if (isNSActive) {
           ctx.moveTo(0, -arm); ctx.lineTo(0, arm);

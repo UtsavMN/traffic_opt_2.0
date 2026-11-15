@@ -658,10 +658,6 @@ export class Engine {
     const v = this.vehiclePool.acquire(type, route, this.graph);
     if (!v) { return; }
     v.engine = this;
-
-    // Position setup
-    v.pos.x = origin.x;
-    v.pos.y = origin.y;
     
     this.vehicles.push(v);
     this.totalSpawned++;
@@ -858,18 +854,18 @@ export class Engine {
     this.renderer.drawSensorCones(this.intersections);
     // Layer 3.5: Ambulance Routes
     this.renderer.drawAmbulanceRoutes(this.vehicles, this.graph);
+    // Layer 3.8: Surface Intersections & Traffic Signals (layer <= 0; stop lines & road beacons drawn on asphalt before vehicles)
+    this.renderer.drawIntersections(this.intersections, 'surface', this.graph);
     // Layer 4: Surface Vehicles (layer <= 0; hidden when passing under flyovers or through underpass tunnels)
     this.renderer.drawVehicles(this.vehicles, this.timeOfDay.isNight, 'surface');
     // Layer 5: Cyclists
     this.renderer.drawCyclists(this.cyclists);
-    // Layer 5.5: Surface Intersections & Traffic Signals (layer <= 0)
-    this.renderer.drawIntersections(this.intersections, 'surface', this.graph);
     // Layer 6: Elevated Flyovers & Bridges (layer > 0) with realistic 3D drop shadow, deck asphalt & parapets
     this.renderer.drawRoads(this.graph, 'flyover');
+    // Layer 6.5: Elevated Intersections (layer > 0)
+    this.renderer.drawIntersections(this.intersections, 'flyover', this.graph);
     // Layer 7: Elevated Vehicles (layer > 0) traveling on top of the flyovers
     this.renderer.drawVehicles(this.vehicles, this.timeOfDay.isNight, 'flyover');
-    // Layer 7.5: Elevated Intersections (layer > 0)
-    this.renderer.drawIntersections(this.intersections, 'flyover', this.graph);
     // Layer 8: Accidents
     this.accidents.render(this.renderer.ctx);
     // Layer 9: Weather particles

@@ -72,8 +72,8 @@ export const ROAD_TIER_CONFIG = {
     laneWidthM: 2.6,
     defaultLanes: 1,
     speedLimitKmh: 24,
-    surfaceColor: '#252D3B', // High-contrast crisp slate asphalt
-    casingColor: '#0E131A', // Distinct edge boundary
+    surfaceColor: '#2D3748', // High-contrast crisp slate asphalt
+    casingColor: '#121822', // Distinct edge boundary
     divider: 'none', // Authentic: NO bright yellow highway stripe!
   },
   unclassified: {
@@ -82,8 +82,8 @@ export const ROAD_TIER_CONFIG = {
     laneWidthM: 2.6,
     defaultLanes: 1,
     speedLimitKmh: 24,
-    surfaceColor: '#252D3B',
-    casingColor: '#0E131A',
+    surfaceColor: '#2D3748',
+    casingColor: '#121822',
     divider: 'none',
   },
   service: {
@@ -92,8 +92,8 @@ export const ROAD_TIER_CONFIG = {
     laneWidthM: 2.3,
     defaultLanes: 1,
     speedLimitKmh: 18,
-    surfaceColor: '#1F2633',
-    casingColor: '#0A0E14',
+    surfaceColor: '#242D3C',
+    casingColor: '#0E131A',
     divider: 'none',
   },
   default: {
@@ -102,8 +102,8 @@ export const ROAD_TIER_CONFIG = {
     laneWidthM: 2.6,
     defaultLanes: 1,
     speedLimitKmh: 24,
-    surfaceColor: '#252D3B',
-    casingColor: '#0E131A',
+    surfaceColor: '#2D3748',
+    casingColor: '#121822',
     divider: 'none',
   }
 };

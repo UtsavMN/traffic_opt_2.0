@@ -96,7 +96,7 @@ server.listen(4173, async () => {
             const dir = v._getDirection ? v._getDirection() : null;
             const lightColor = dir ? ((dir === 'N' || dir === 'S') ? intObj.trafficLight.getColorNS() : intObj.trafficLight.getColorEW()) : 'GREEN';
 
-            const stopLineDist = Math.max(14, (intObj.maxLanes || 2) * (edge.laneWidthM || 2.85) * 1.0 * 0.65);
+            const stopLineDist = Math.max(3.5, (intObj.maxLanes || 2) * (edge.laneWidthM || 2.85) * 1.0 * 0.38);
             const distToIntersection = (1 - v.segmentProgress) * edge.length;
             const distToStopLine = distToIntersection - stopLineDist;
 

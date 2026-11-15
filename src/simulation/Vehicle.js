@@ -325,8 +325,8 @@ export class Vehicle {
         const dir = this._getDirection();
         const lightColor = dir ? (dir === 'N' || dir === 'S' ? intObj.trafficLight.getColorNS() : intObj.trafficLight.getColorEW()) : 'GREEN';
         
-        // Stop line is located before the junction center
-        stopLineDist = Math.max(14, (intObj.maxLanes || 2) * (edge.laneWidthM || 2.85) * CANVAS_SCALE * 0.65);
+        // Stop line is located right before the junction entrance (IRC standard 3-4m)
+        stopLineDist = Math.max(3.5, (intObj.maxLanes || 2) * (edge.laneWidthM || 2.85) * CANVAS_SCALE * 0.38);
         distToIntersection = (1 - this.segmentProgress) * edge.length;
         distToStopLine = distToIntersection - stopLineDist;
 
@@ -372,8 +372,8 @@ export class Vehicle {
         if (isRedOrYellow && !this.sirenActive && !this.clearingJunction) {
           stopAtIntersection = true;
           intersectionGap = Math.max(0.1, distToStopLine - (this.length / 2));
-          // Hold vehicle firmly stopped when at or past the stop line, preventing creeping
-          if (distToStopLine <= 2.5 * CANVAS_SCALE) {
+          // Hold vehicle firmly stopped when front bumper reaches stop line, preventing creeping
+          if (distToStopLine <= (this.length / 2) + 0.8 * CANVAS_SCALE) {
             this.speed = 0;
           }
         } else if (!stopAtIntersection && distToStopLine > 0 && distToStopLine < 30 * CANVAS_SCALE) {

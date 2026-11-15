@@ -129,7 +129,7 @@ export class Renderer {
     if (!isFlyoverPass) {
       const cacheKey = `${this.camera.x.toFixed(1)}_${this.camera.y.toFixed(1)}_${this.camera.zoom.toFixed(4)}_${this.width}_${this.height}`;
       if (this._surfaceRoadCacheKey === cacheKey && this._surfaceRoadCanvas) {
-        this.ctx.drawImage(this._surfaceRoadCanvas, 0, 0);
+        this.ctx.drawImage(this._surfaceRoadCanvas, 0, 0, this.width, this.height);
         return;
       }
 
@@ -147,7 +147,7 @@ export class Renderer {
 
       this._renderRoadsToContext(this._surfaceRoadCtx, graph, false);
       this._surfaceRoadCacheKey = cacheKey;
-      this.ctx.drawImage(this._surfaceRoadCanvas, 0, 0);
+      this.ctx.drawImage(this._surfaceRoadCanvas, 0, 0, this.width, this.height);
       return;
     }
 
@@ -321,11 +321,11 @@ export class Renderer {
       const { totalLanes, lw, roadTier, tierConfig } = getRoadInfo(edge);
       let baseW = totalLanes * lw;
       if (detail === 'overview') {
-        baseW = roadTier === 'arterial' ? 4.2 / z : (roadTier === 'main' ? 2.6 / z : 1.4 / z);
+        baseW = roadTier === 'arterial' ? 4.2 / z : (roadTier === 'main' ? 2.6 / z : 1.6 / z);
       } else if (detail === 'district') {
-        baseW = Math.max(baseW, (roadTier === 'arterial' ? 3.6 : (roadTier === 'main' ? 2.4 : 1.6)) / z);
+        baseW = Math.max(baseW, (roadTier === 'arterial' ? 3.8 : (roadTier === 'main' ? 2.6 : 1.8)) / z);
       } else {
-        baseW = Math.max(baseW, (roadTier === 'arterial' ? 4.0 : (roadTier === 'main' ? 3.0 : 2.5)));
+        baseW = Math.max(baseW, (roadTier === 'arterial' ? 4.2 : (roadTier === 'main' ? 3.2 : 2.8)));
       }
       const w = baseW * z;
 
@@ -337,7 +337,7 @@ export class Renderer {
         ctx.lineWidth = w + 2.0 * Math.max(1, z * 0.3);
       } else {
         ctx.strokeStyle = tierConfig.casingColor || '#07090C'; // Paved shoulder edge / road boundary
-        ctx.lineWidth = w + (roadTier === 'arterial' ? 2.6 : 1.6) * Math.max(1, z * 0.4);
+        ctx.lineWidth = w + (roadTier === 'arterial' ? 2.8 : 1.8) * Math.max(1, z * 0.4);
       }
       ctx.lineCap = 'round';
       drawEdgePath(edge.geometry);
@@ -350,11 +350,11 @@ export class Renderer {
       const { isTwoWay, oppLanes, fwdLanes, totalLanes, lw, roadTier, divider, tierConfig } = getRoadInfo(edge);
       let baseW = totalLanes * lw;
       if (detail === 'overview') {
-        baseW = roadTier === 'arterial' ? 4.2 / z : (roadTier === 'main' ? 2.6 / z : 1.4 / z);
+        baseW = roadTier === 'arterial' ? 4.2 / z : (roadTier === 'main' ? 2.6 / z : 1.6 / z);
       } else if (detail === 'district') {
-        baseW = Math.max(baseW, (roadTier === 'arterial' ? 3.6 : (roadTier === 'main' ? 2.4 : 1.6)) / z);
+        baseW = Math.max(baseW, (roadTier === 'arterial' ? 3.8 : (roadTier === 'main' ? 2.6 : 1.8)) / z);
       } else {
-        baseW = Math.max(baseW, (roadTier === 'arterial' ? 4.0 : (roadTier === 'main' ? 3.0 : 2.5)));
+        baseW = Math.max(baseW, (roadTier === 'arterial' ? 4.2 : (roadTier === 'main' ? 3.2 : 2.8)));
       }
       const w = baseW * z;
 
@@ -547,14 +547,41 @@ export class Renderer {
       if (layerFilter === 'flyover' && intLayer <= 0) continue;
       if (!this.isInsideViewport(int.x, int.y, bounds)) continue;
       const s = this.worldToScreen(int.x, int.y);
-
-      // Dynamically calculate radius of junction based on road width
-      const roadWidth = (int.maxLanes || 2) * LANE_WIDTH_PX();
-      const patchRadius = (roadWidth * 0.5 + 1.2) * z;
       const tl = int.trafficLight;
 
-      // ── 1. Approach-Specific Signals & Stop Bars (for each incoming road) ──
+      // Determine corridor active phase color
+      const isGreen = tl.currentPhase ? tl.currentPhase.includes('GREEN') : false;
+      const isYellow = tl.currentPhase ? tl.currentPhase.includes('YELLOW') : false;
+      const hubColor = isGreen ? '#00E87A' : (isYellow ? '#FFB400' : '#FF3B5C');
+
+      // ── Overview / District Zoom (z < 1.4): Single crisp, rock-solid junction beacon ──
+      // Zero satellite orbiting dots, zero outer rings, zero zoom-drifting!
+      if (z < 1.4) {
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        const hubR = Math.min(3.8, Math.max(2.2, 1.8 * z));
+        ctx.fillStyle = hubColor;
+        ctx.beginPath();
+        ctx.arc(0, 0, hubR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#0B0F14';
+        ctx.lineWidth = 1.0;
+        ctx.stroke();
+
+        if (int.policeActive) {
+          ctx.fillStyle = '#3D9EFF';
+          ctx.beginPath();
+          ctx.arc(hubR + 2, -hubR - 2, 2.0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+        continue;
+      }
+
+      // ── Street Zoom (z >= 1.4): Stop Bars & Curb Traffic Signal Posts ──
       if (graph) {
+        const scale = (typeof CANVAS_SCALE !== 'undefined' ? CANVAS_SCALE : (typeof getCanvasScale === 'function' ? getCanvasScale() : 1)) || 1;
+
         for (const [, edge] of graph.edges) {
           if (edge.to !== int.id || !edge.geometry || edge.geometry.length < 2) continue;
 
@@ -564,223 +591,176 @@ export class Renderer {
           const dx = pEnd.x - pPrev.x, dy = pEnd.y - pPrev.y;
           const len = Math.hypot(dx, dy) || 1;
           const dirX = dx / len, dirY = dy / len;
-          const perpX = -dirY, perpY = dirX; // Perpendicular facing right
+          const perpX = -dirY, perpY = dirX; // Perpendicular pointing to the RIGHT of travel
 
           const approachDir = edge.cardinalDir || (Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'E' : 'W') : (dy > 0 ? 'S' : 'N'));
           const appColor = (approachDir === 'N' || approachDir === 'S') ? tl.getColorNS() : tl.getColorEW();
-          const hex = appColor === 'GREEN' ? '#00E87A' : (appColor === 'YELLOW' ? '#FFB400' : '#FF3B5C');
 
-          const scale = (typeof CANVAS_SCALE !== 'undefined' ? CANVAS_SCALE : (typeof getCanvasScale === 'function' ? getCanvasScale() : 1)) || 1;
-          const stopLineDist = Math.max(14, (int.maxLanes || 2) * (edge.laneWidthM || 2.85) * scale * 0.65);
+          // Stop line setback distance: realistic 3-4 meters before junction mouth (NOT 14 meters!)
+          const stopLineDist = Math.max(3.2, (int.maxLanes || 2) * (edge.laneWidthM || 2.85) * scale * 0.38);
           const stopWorldX = pEnd.x - dirX * stopLineDist;
           const stopWorldY = pEnd.y - dirY * stopLineDist;
           const sStop = this.worldToScreen(stopWorldX, stopWorldY);
 
+          const oppEdge = graph.edges.get(`${edge.to}->${edge.from}`);
+          const isTwoWay = !!oppEdge;
           const lanes = edge.lanes || 1;
           const laneW = (edge.laneWidthM || 2.85) * scale * z;
           const carriagewayW = lanes * laneW;
 
-          // 1.A: Illuminated Stop Bar across approach lane (Left-Hand Traffic in India)
+          // In Left-Hand Traffic (LHT) in India:
+          // Centerline is at sStop. Vehicles travel on the left side (-perp direction).
+          let startStopX = sStop.x, startStopY = sStop.y;
+          let curbX, curbY;
+
+          if (isTwoWay) {
+            // Two-way road: stop bar extends from centerline to left curb
+            curbX = sStop.x - perpX * carriagewayW;
+            curbY = sStop.y - perpY * carriagewayW;
+          } else {
+            // One-way carriageway: road centerline is in the center of the road
+            startStopX = sStop.x + perpX * (carriagewayW * 0.5);
+            startStopY = sStop.y + perpY * (carriagewayW * 0.5);
+            curbX = sStop.x - perpX * (carriagewayW * 0.5);
+            curbY = sStop.y - perpY * (carriagewayW * 0.5);
+          }
+
+          // 1.A: Illuminated Stop Bar across approach lane
           ctx.save();
           ctx.lineCap = 'butt';
           if (appColor === 'RED') {
             ctx.strokeStyle = '#FF3B5C'; // Bright luminous red stop line
-            ctx.lineWidth = Math.min(2.5, Math.max(1.2, 0.35 * z));
-            ctx.beginPath();
-            ctx.moveTo(sStop.x, sStop.y);
-            ctx.lineTo(sStop.x - perpX * carriagewayW, sStop.y - perpY * carriagewayW);
-            ctx.stroke();
+            ctx.lineWidth = Math.min(2.8, Math.max(1.4, 0.45 * z));
           } else if (appColor === 'YELLOW') {
             ctx.strokeStyle = '#FFB400'; // Amber warning bar
-            ctx.lineWidth = Math.min(2.2, Math.max(1.0, 0.30 * z));
-            ctx.beginPath();
-            ctx.moveTo(sStop.x, sStop.y);
-            ctx.lineTo(sStop.x - perpX * carriagewayW, sStop.y - perpY * carriagewayW);
-            ctx.stroke();
+            ctx.lineWidth = Math.min(2.4, Math.max(1.2, 0.40 * z));
           } else {
             // GREEN: Subtle translucent green flow bar
             ctx.strokeStyle = 'rgba(0, 232, 122, 0.50)';
-            ctx.lineWidth = Math.min(1.5, Math.max(0.8, 0.20 * z));
-            ctx.beginPath();
-            ctx.moveTo(sStop.x, sStop.y);
-            ctx.lineTo(sStop.x - perpX * carriagewayW, sStop.y - perpY * carriagewayW);
-            ctx.stroke();
+            ctx.lineWidth = Math.min(1.5, Math.max(0.8, 0.25 * z));
+          }
+          ctx.beginPath();
+          ctx.moveTo(startStopX, startStopY);
+          ctx.lineTo(curbX, curbY);
+          ctx.stroke();
+          ctx.restore();
+
+          // 1.B: Sleek Curb Traffic Signal Head on Sidewalk
+          // Placed on the LEFT sidewalk curb, offset outward from the road edge onto the pavement
+          const sidewalkOffset = 2.0 * Math.max(1.0, z * 0.4);
+          const signalX = curbX - perpX * sidewalkOffset;
+          const signalY = curbY - perpY * sidewalkOffset;
+
+          const roadAngle = Math.atan2(dirY, dirX);
+          ctx.save();
+          ctx.translate(signalX, signalY);
+          ctx.rotate(roadAngle);
+
+          // Signal pole base
+          ctx.fillStyle = '#1E293B';
+          ctx.strokeStyle = '#475569';
+          ctx.lineWidth = 0.8;
+          ctx.beginPath();
+          ctx.arc(0, 0, Math.min(2.2, Math.max(1.2, 0.7 * z)), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+
+          // Compact signal head casing aligned along curb
+          const boxL = Math.min(8.5, Math.max(5.0, 3.4 * z));
+          const boxW = Math.min(3.6, Math.max(2.2, 1.5 * z));
+          const lensR = Math.min(1.2, Math.max(0.7, 0.5 * z));
+          const lensSpacing = boxL * 0.28;
+
+          ctx.fillStyle = '#0F172A';
+          ctx.strokeStyle = '#334155';
+          ctx.lineWidth = Math.min(0.8, 0.3 * z);
+          ctx.beginPath();
+          ctx.roundRect(-boxL * 0.5, -boxW * 0.5, boxL, boxW, Math.min(1.2, 0.5 * z));
+          ctx.fill();
+          ctx.stroke();
+
+          // Lens 1: RED (upstream approach side)
+          const isRedLit = (appColor === 'RED');
+          ctx.fillStyle = isRedLit ? '#FF3B5C' : '#3F1219';
+          ctx.beginPath();
+          ctx.arc(-lensSpacing, 0, lensR, 0, Math.PI * 2);
+          ctx.fill();
+          if (isRedLit && z >= 2.0) {
+            ctx.shadowColor = '#FF3B5C';
+            ctx.shadowBlur = 4 * z;
+            ctx.fill();
+            ctx.shadowBlur = 0;
           }
 
-          // 1.B: High-visibility Authentic Traffic Signal Head on roadside curb
-          const curbOffset = carriagewayW + 3.2 * z;
-          const curbX = sStop.x - perpX * curbOffset;
-          const curbY = sStop.y - perpY * curbOffset;
-
-          if (z >= 1.4) {
-            // Detailed 3-lens signal head aligned along the roadside curb
-            const roadAngle = Math.atan2(dirY, dirX);
-            ctx.save();
-            ctx.translate(curbX, curbY);
-            ctx.rotate(roadAngle);
-
-            const boxL = Math.min(10.5, Math.max(6.5, 4.6 * z)); // Length along curb
-            const boxW = Math.min(4.2, Math.max(2.6, 1.8 * z));  // Width across curb
-            const lensR = Math.min(1.5, Math.max(0.8, 0.65 * z));
-            const lensSpacing = boxL * 0.28;
-
-            // Signal housing (dark casing with subtle outline)
-            ctx.fillStyle = '#0F172A';
-            ctx.strokeStyle = '#334155';
-            ctx.lineWidth = Math.min(1.0, 0.4 * z);
-            ctx.beginPath();
-            ctx.roundRect(-boxL * 0.5, -boxW * 0.5, boxL, boxW, Math.min(1.5, 0.6 * z));
+          // Lens 2: AMBER (center)
+          const isYellowLit = (appColor === 'YELLOW');
+          ctx.fillStyle = isYellowLit ? '#FFB400' : '#382207';
+          ctx.beginPath();
+          ctx.arc(0, 0, lensR, 0, Math.PI * 2);
+          ctx.fill();
+          if (isYellowLit && z >= 2.0) {
+            ctx.shadowColor = '#FFB400';
+            ctx.shadowBlur = 4 * z;
             ctx.fill();
-            ctx.stroke();
-
-            // 3 Lenses: RED (incoming side), AMBER (middle), GREEN (intersection side)
-            // Lens 1: RED
-            const isRedLit = (appColor === 'RED');
-            ctx.fillStyle = isRedLit ? '#FF3B5C' : '#3F1219';
-            ctx.beginPath();
-            ctx.arc(-lensSpacing, 0, lensR, 0, Math.PI * 2);
-            ctx.fill();
-            if (isRedLit && z >= 2.0) {
-              ctx.shadowColor = '#FF3B5C';
-              ctx.shadowBlur = 5 * z;
-              ctx.fill();
-              ctx.shadowBlur = 0;
-            }
-
-            // Lens 2: AMBER
-            const isYellowLit = (appColor === 'YELLOW');
-            ctx.fillStyle = isYellowLit ? '#FFB400' : '#382207';
-            ctx.beginPath();
-            ctx.arc(0, 0, lensR, 0, Math.PI * 2);
-            ctx.fill();
-            if (isYellowLit && z >= 2.0) {
-              ctx.shadowColor = '#FFB400';
-              ctx.shadowBlur = 5 * z;
-              ctx.fill();
-              ctx.shadowBlur = 0;
-            }
-
-            // Lens 3: GREEN
-            const isGreenLit = (appColor === 'GREEN');
-            ctx.fillStyle = isGreenLit ? '#00E87A' : '#062E19';
-            ctx.beginPath();
-            ctx.arc(lensSpacing, 0, lensR, 0, Math.PI * 2);
-            ctx.fill();
-            if (isGreenLit && z >= 2.0) {
-              ctx.shadowColor = '#00E87A';
-              ctx.shadowBlur = 5 * z;
-              ctx.fill();
-              ctx.shadowBlur = 0;
-            }
-
-            ctx.restore();
-          } else {
-            // Overview zoom: luminous signal lamp dot on curb
-            const lampRadius = Math.min(4.0, Math.max(2.2, 1.8 * z));
-            ctx.fillStyle = hex;
-            ctx.beginPath();
-            ctx.arc(curbX, curbY, lampRadius, 0, Math.PI * 2);
-            ctx.fill();
-
-            ctx.strokeStyle = '#0F172A';
-            ctx.lineWidth = Math.min(1.2, 0.6 * z);
-            ctx.stroke();
+            ctx.shadowBlur = 0;
           }
+
+          // Lens 3: GREEN (downstream junction side)
+          const isGreenLit = (appColor === 'GREEN');
+          ctx.fillStyle = isGreenLit ? '#00E87A' : '#062E19';
+          ctx.beginPath();
+          ctx.arc(lensSpacing, 0, lensR, 0, Math.PI * 2);
+          ctx.fill();
+          if (isGreenLit && z >= 2.0) {
+            ctx.shadowColor = '#00E87A';
+            ctx.shadowBlur = 4 * z;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+          }
+
           ctx.restore();
         }
       }
 
-      // ── 2. Junction Center Hub & Active Corridor Flow Arrow ──
+      // ── Junction Center Hub Beacon ──
       ctx.save();
       ctx.translate(s.x, s.y);
-
-      // Determine corridor phase
-      const isNSActive = tl.currentPhase ? tl.currentPhase.includes('NS') : true;
-      const isGreen = tl.currentPhase ? tl.currentPhase.includes('GREEN') : false;
-      const isYellow = tl.currentPhase ? tl.currentPhase.includes('YELLOW') : false;
-      const hubColor = isGreen ? '#00E87A' : (isYellow ? '#FFB400' : '#FF3B5C');
-
-      // Center junction beacon: bright glowing core + outer phase ring
-      const hubR = Math.min(5.5, Math.max(2.8, 2.5 * z));
+      const hubR = Math.min(4.5, Math.max(2.6, 2.2 * z));
       ctx.fillStyle = hubColor;
       ctx.beginPath();
       ctx.arc(0, 0, hubR, 0, Math.PI * 2);
       ctx.fill();
-
-      // Outer ring
-      ctx.strokeStyle = hubColor;
-      ctx.lineWidth = Math.min(2.0, Math.max(1.0, 0.9 * z));
-      ctx.beginPath();
-      ctx.arc(0, 0, hubR * 1.5, 0, Math.PI * 2);
+      ctx.strokeStyle = '#0B0F14';
+      ctx.lineWidth = 1.0;
       ctx.stroke();
 
-      // Active corridor flow arrow indicating which corridor has green right-of-way
-      if (isGreen) {
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = Math.min(2.2, Math.max(1.2, 1.0 * z));
-        const arm = hubR + Math.min(9, 3.5 * z);
-        ctx.beginPath();
-        if (isNSActive) {
-          ctx.moveTo(0, -arm); ctx.lineTo(0, arm);
-        } else {
-          ctx.moveTo(-arm, 0); ctx.lineTo(arm, 0);
-        }
-        ctx.stroke();
-      }
-
-      // Traffic Police (Minimal small 'P' indicator — zero visual harm/clutter)
+      // Traffic Police Indicator
       if (int.policeActive) {
-        const curbDist = patchRadius + 6 * z;
-        const kx = curbDist * 0.707;
-        const ky = -curbDist * 0.707;
-
-        ctx.save();
-        ctx.translate(kx, ky);
-
-        const r = Math.min(6.0, Math.max(2.5, 3.0 * z));
-
-        // Small neat circular badge
-        ctx.fillStyle = '#1D4ED8'; // Clean police blue
+        ctx.fillStyle = '#1D4ED8';
         ctx.beginPath();
-        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.arc(hubR + 3, -hubR - 3, Math.min(5.0, Math.max(2.5, 2.8 * z)), 0, Math.PI * 2);
         ctx.fill();
-
         ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = Math.min(1.2, Math.max(0.6, 0.8 * z));
+        ctx.lineWidth = 0.8;
         ctx.stroke();
-
-        // Small white 'P'
         ctx.fillStyle = '#FFFFFF';
-        ctx.font = `bold ${Math.min(7.0, Math.max(3.2, 3.6 * z))}px sans-serif`;
+        ctx.font = `bold ${Math.min(6.5, Math.max(3.2, 3.2 * z))}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('P', 0, 0.3 * z);
-
-        ctx.restore();
+        ctx.fillText('P', hubR + 3, -hubR - 3);
       }
-
       ctx.restore();
 
       // AI Decision Pulse
       if (int.aiPulseActive && this.overlays.aiDecisions) {
         const t = int.aiPulseTimer;
-        let alpha;
-        if (t > 0.8) { alpha = (1.1 - t) / 0.3; } // fade in 300ms
-        else { alpha = t / 0.8; } // fade out 800ms
+        let alpha = t > 0.8 ? (1.1 - t) / 0.3 : t / 0.8;
         alpha = Math.max(0, Math.min(1, alpha)) * 0.6;
-
         ctx.strokeStyle = `rgba(155,111,255,${alpha})`;
         ctx.lineWidth = 1 * this.camera.zoom;
         ctx.beginPath();
         ctx.arc(s.x, s.y, 8 * this.camera.zoom, 0, Math.PI * 2);
         ctx.stroke();
-
-        // Inner glow
-        const grad = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, 10 * this.camera.zoom);
-        grad.addColorStop(0, `rgba(155,111,255,${alpha * 0.2})`);
-        grad.addColorStop(1, 'rgba(155,111,255,0)');
-        ctx.fillStyle = grad;
-        ctx.fill();
       }
     }
   }

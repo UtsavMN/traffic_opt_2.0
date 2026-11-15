@@ -22,8 +22,8 @@ export const ROAD_TIER_CONFIG = {
     laneWidthM: 3.5,
     defaultLanes: 3,
     speedLimitKmh: 60,
-    surfaceColor: '#363E4D',
-    casingColor: '#0A0C10',
+    surfaceColor: '#4C5B72',
+    casingColor: '#1C2332',
     divider: 'double_yellow',
   },
   trunk: {
@@ -32,8 +32,8 @@ export const ROAD_TIER_CONFIG = {
     laneWidthM: 3.5,
     defaultLanes: 3,
     speedLimitKmh: 55,
-    surfaceColor: '#303744',
-    casingColor: '#090B0E',
+    surfaceColor: '#435165',
+    casingColor: '#181F2C',
     divider: 'double_yellow',
   },
   primary: {
@@ -42,8 +42,8 @@ export const ROAD_TIER_CONFIG = {
     laneWidthM: 3.4,
     defaultLanes: 2,
     speedLimitKmh: 50,
-    surfaceColor: '#2B323F',
-    casingColor: '#080A0D',
+    surfaceColor: '#3A4658',
+    casingColor: '#151A25',
     divider: 'double_yellow',
   },
   secondary: {
@@ -52,8 +52,8 @@ export const ROAD_TIER_CONFIG = {
     laneWidthM: 3.1,
     defaultLanes: 2,
     speedLimitKmh: 40,
-    surfaceColor: '#242A35',
-    casingColor: '#07090C',
+    surfaceColor: '#323D4E',
+    casingColor: '#121721',
     divider: 'dashed_white',
   },
   tertiary: {
@@ -62,8 +62,8 @@ export const ROAD_TIER_CONFIG = {
     laneWidthM: 2.85,
     defaultLanes: 1,
     speedLimitKmh: 32,
-    surfaceColor: '#1F242E',
-    casingColor: '#06070A',
+    surfaceColor: '#2B3444',
+    casingColor: '#10151E',
     divider: 'dashed_white',
   },
   residential: {
@@ -72,8 +72,8 @@ export const ROAD_TIER_CONFIG = {
     laneWidthM: 2.6,
     defaultLanes: 1,
     speedLimitKmh: 24,
-    surfaceColor: '#1A1E26',
-    casingColor: '#050608',
+    surfaceColor: '#252D3B', // High-contrast crisp slate asphalt
+    casingColor: '#0E131A', // Distinct edge boundary
     divider: 'none', // Authentic: NO bright yellow highway stripe!
   },
   unclassified: {
@@ -82,8 +82,8 @@ export const ROAD_TIER_CONFIG = {
     laneWidthM: 2.6,
     defaultLanes: 1,
     speedLimitKmh: 24,
-    surfaceColor: '#1A1E26',
-    casingColor: '#050608',
+    surfaceColor: '#252D3B',
+    casingColor: '#0E131A',
     divider: 'none',
   },
   service: {
@@ -92,18 +92,18 @@ export const ROAD_TIER_CONFIG = {
     laneWidthM: 2.3,
     defaultLanes: 1,
     speedLimitKmh: 18,
-    surfaceColor: '#151820',
-    casingColor: '#030406',
+    surfaceColor: '#1F2633',
+    casingColor: '#0A0E14',
     divider: 'none',
   },
   default: {
     tier: 'cross',
     name: 'Urban Street',
-    laneWidthM: 2.75,
+    laneWidthM: 2.6,
     defaultLanes: 1,
-    speedLimitKmh: 28,
-    surfaceColor: '#1C2029',
-    casingColor: '#050608',
+    speedLimitKmh: 24,
+    surfaceColor: '#252D3B',
+    casingColor: '#0E131A',
     divider: 'none',
   }
 };

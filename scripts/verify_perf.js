@@ -155,20 +155,33 @@ server.listen(4173, async () => {
   await page.screenshot({ path: path.join(screenshotDir, 'perf_overview.png') });
   console.log('Saved overview screenshot to dist/perf_overview.png');
 
-  // Zoom in on Benson Town / Davis Road to verify signals & lane dashes
+  // Zoom in on Davis Road to verify signals & clean non-overlapping curb lights
   await page.evaluate(() => {
     if (window.__sancharEngine) {
-      // Zoom into Davis Road area
-      window.__sancharEngine.renderer.camera.zoom = 3.2;
-      window.__sancharEngine.renderer.camera.x = 2100;
-      window.__sancharEngine.renderer.camera.y = 1950;
+      window.__sancharEngine.renderer.camera.zoom = 2.6;
+      window.__sancharEngine.renderer.camera.x = 2682;
+      window.__sancharEngine.renderer.camera.y = 2085;
       window.__sancharEngine.renderer.invalidateRoadCache();
     }
   });
 
-  await new Promise(r => setTimeout(r, 1000));
+  await new Promise(r => setTimeout(r, 1200));
   await page.screenshot({ path: path.join(screenshotDir, 'perf_zoomed_davis_road.png') });
   console.log('Saved zoomed Davis Road screenshot to dist/perf_zoomed_davis_road.png');
+
+  // Zoom in on Arabic College Main Road to verify high-contrast roads and clean vehicle tracking
+  await page.evaluate(() => {
+    if (window.__sancharEngine) {
+      window.__sancharEngine.renderer.camera.zoom = 2.4;
+      window.__sancharEngine.renderer.camera.x = 2125;
+      window.__sancharEngine.renderer.camera.y = 1350;
+      window.__sancharEngine.renderer.invalidateRoadCache();
+    }
+  });
+
+  await new Promise(r => setTimeout(r, 1200));
+  await page.screenshot({ path: path.join(screenshotDir, 'perf_zoomed_arabic_college.png') });
+  console.log('Saved zoomed Arabic College Road screenshot to dist/perf_zoomed_arabic_college.png');
 
   await browser.close();
   server.close();

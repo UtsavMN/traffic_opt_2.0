@@ -129,8 +129,8 @@ export class AdaptiveController {
       return { model: 'ADAPTIVE', reasonDetail: 'Adaptive baseline' };
     }
 
-    const totalQueue = int.getTotalQueue();
-    const currentIsNS = int.trafficLight ? int.trafficLight.currentPhase.includes('NS') : true;
+    const totalQueue = int.getTotalQueue ? int.getTotalQueue() : 0;
+    const currentIsNS = (int?.trafficLight?.currentPhase) ? int.trafficLight.currentPhase.includes('NS') : true;
     const currentQueue = currentIsNS ? int.getQueueNS() : int.getQueueEW();
     const opposingQueue = currentIsNS ? int.getQueueEW() : int.getQueueNS();
 
@@ -168,12 +168,13 @@ export class AdaptiveController {
   }
 
   _evaluate(int, engine) {
+    if (!int || !int.isSignalized || !int.trafficLight) return null;
     const tl = int.trafficLight;
     if (!tl) return null;
     const nsQ = int.getQueueNS();
     const ewQ = int.getQueueEW();
-    const timeInPhase = tl.timeInPhase;
-    const phase = tl.currentPhase;
+    const timeInPhase = tl.timeInPhase || 0;
+    const phase = tl.currentPhase || 'NS_GREEN';
 
     // Emergency Preemption (Highest priority)
     if (int.emergencyApproaching) {
@@ -330,7 +331,7 @@ export class AdaptiveController {
   }
 
   _executeRLAction(int, actionName) {
-    const tl = int ? int.trafficLight : null;
+    const tl = int?.trafficLight;
     if (!tl) return;
     const currentIsNS = tl.currentPhase === 'NS_GREEN';
 

@@ -231,21 +231,22 @@ export class Engine {
       const isMajor4Way = allNeighbors.size >= 4 && (isArterial || isMain || isCollector || roadNames.size >= 2);
 
       // D. 3-way T-junctions:
-      // Must involve an arterial or commercial main road, or connect at least two named streets
-      const isMajor3Way = allNeighbors.size === 3 && (isArterial || isMain || (isCollector && roadNames.size >= 2));
+      // Only major arterial intersections or busy commercial main intersections warrant automated signals.
+      // Minor side-streets, residential connections, and collector side-spurs use stop/give-way priority.
+      const isMajor3Way = allNeighbors.size === 3 && (isArterial || (isMain && roadNames.size >= 2));
 
       if (!isMajor4Way && !isMajor3Way) continue;
 
       // Priority score based on real mobility hierarchy
-      const score = allNeighbors.size * 20 + (isArterial ? 50 : 0) + (isMain ? 30 : 0) + (isCollector ? 15 : 0) + (roadNames.size * 10);
+      const score = allNeighbors.size * 25 + (isArterial ? 60 : 0) + (isMain ? 35 : 0) + (isCollector ? 15 : 0) + (roadNames.size * 10);
       candidates.push({ id, node, score, x: node.x, y: node.y });
     }
 
     candidates.sort((a, b) => b.score - a.score);
 
-    // Corridor spacing: 60px (~70m) prevents duplicate split nodes while preserving adjacent crossroads
+    // Corridor spacing: 85px (~95-100m) ensures realistic urban spacing and prevents adjacent overlapping signals
     const signalizedIds = new Set();
-    const minSpacingSq = 60 * 60;
+    const minSpacingSq = 85 * 85;
     for (const c of candidates) {
       let tooClose = false;
       for (const sId of signalizedIds) {

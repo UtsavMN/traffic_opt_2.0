@@ -9,31 +9,32 @@ export class StateEncoder {
       return new Float32Array(10);
     }
     const tl = int.trafficLight;
+    if (!tl) return new Float32Array(10);
     const maxQ = 20;
 
     // Use estimated queues from the sensor-realism layer!
-    const sensorRealism = engine.sensorRealism;
-    const est = sensorRealism ? sensorRealism.getEstimatedQueues(int.id) : int.queues;
+    const sensorRealism = engine ? engine.sensorRealism : null;
+    const est = sensorRealism ? sensorRealism.getEstimatedQueues(int.id) : (int.queues || { N: 0, S: 0, E: 0, W: 0 });
 
     // Calculate downstream queue estimates (for pressure calculation)
-    const neighbors = engine.graph ? engine.graph.getNeighbors(int.id) : [];
+    const neighbors = (engine && engine.graph) ? engine.graph.getNeighbors(int.id) : [];
     let downstreamTotal = 0;
     let downstreamLanes = 0;
     for (const nId of neighbors) {
-      const nEst = sensorRealism ? sensorRealism.getEstimatedQueues(nId) : engine.intersections.get(nId)?.queues;
+      const nEst = sensorRealism ? sensorRealism.getEstimatedQueues(nId) : engine?.intersections?.get(nId)?.queues;
       if (nEst) {
-        downstreamTotal += (nEst.N + nEst.S + nEst.E + nEst.W);
-        const nInt = engine.intersections ? engine.intersections.get(nId) : null;
+        downstreamTotal += ((nEst.N || 0) + (nEst.S || 0) + (nEst.E || 0) + (nEst.W || 0));
+        const nInt = engine?.intersections ? engine.intersections.get(nId) : null;
         downstreamLanes += nInt ? Math.max(2, (nInt.maxLanes || 2) * 2) : 4;
       }
     }
     const avgDownstream = downstreamLanes > 0 ? (downstreamTotal / downstreamLanes) : 0; // Avg downstream per lane
 
     // Compute local pressure per direction
-    const pN = Math.max(0, est.N - avgDownstream);
-    const pS = Math.max(0, est.S - avgDownstream);
-    const pE = Math.max(0, est.E - avgDownstream);
-    const pW = Math.max(0, est.W - avgDownstream);
+    const pN = Math.max(0, (est?.N || 0) - avgDownstream);
+    const pS = Math.max(0, (est?.S || 0) - avgDownstream);
+    const pE = Math.max(0, (est?.E || 0) - avgDownstream);
+    const pW = Math.max(0, (est?.W || 0) - avgDownstream);
 
     // Phase-invariant local state representation
     const currentIsNS = tl.currentPhase ? tl.currentPhase.includes('NS') : true;
@@ -44,7 +45,7 @@ export class StateEncoder {
     const normOpposing = Math.min(1, opposingPressure / (maxQ * 2));
 
     // Time in phase normalized
-    const tip = tl.phaseProgress;
+    const tip = tl.phaseProgress || 0;
 
     // GNN-style Message Passing (1-hop permutation invariant neighbor aggregation)
     let sumNeighborActive = 0;
@@ -52,14 +53,14 @@ export class StateEncoder {
     let signalizedNeighborCount = 0;
     
     for (const nId of neighbors) {
-      const ni = engine.intersections.get(nId);
+      const ni = engine?.intersections ? engine.intersections.get(nId) : null;
       if (!ni || !ni.isSignalized || !ni.trafficLight) continue;
       signalizedNeighborCount++;
       const nEst = sensorRealism ? sensorRealism.getEstimatedQueues(nId) : ni.queues;
-      const nIsNS = ni.trafficLight.currentPhase ? ni.trafficLight.currentPhase.includes('NS') : true;
+      const nIsNS = (ni.trafficLight && ni.trafficLight.currentPhase) ? ni.trafficLight.currentPhase.includes('NS') : true;
       
-      const nQNS = Math.max(0, nEst.N + nEst.S - avgDownstream);
-      const nQEW = Math.max(0, nEst.E + nEst.W - avgDownstream);
+      const nQNS = Math.max(0, (nEst?.N || 0) + (nEst?.S || 0) - avgDownstream);
+      const nQEW = Math.max(0, (nEst?.E || 0) + (nEst?.W || 0) - avgDownstream);
       
       // Neighbor's active/opposing queues relative to THEIR current phase
       const nActive = nIsNS ? nQNS : nQEW;
@@ -75,9 +76,9 @@ export class StateEncoder {
     // Context features (pure vehicular traffic - pedestrians removed)
     const pedWaiting = 0.0;
     const emergency = int.emergencyApproaching ? 1 : 0;
-    const weatherFactor = 1 - engine.weather.speedMult;
-    const tod = engine.timeOfDay.normalized;
-    const starvationFlag = (tl.redDurationNS > 30 || tl.redDurationEW > 30) ? 1 : 0;
+    const weatherFactor = engine?.weather ? (1 - (engine.weather.speedMult || 1)) : 0;
+    const tod = engine?.timeOfDay ? (engine.timeOfDay.normalized || 0) : 0.5;
+    const starvationFlag = ((tl.redDurationNS || 0) > 30 || (tl.redDurationEW || 0) > 30) ? 1 : 0;
 
     return new Float32Array([
       normActive,

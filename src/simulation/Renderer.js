@@ -162,17 +162,17 @@ export class Renderer {
 
     // Realistic Indian Road & Highway Asphalt Surface Shades
     const colors = { 
-      motorway: '#475569',   // Expressways (e.g. Bangalore-Mysore NE-1)
-      trunk: '#3E4756',      // National Highways (e.g. NH-44)
-      primary: '#333B48',    // Major City Arterials (e.g. Outer Ring Road, MG Road)
-      secondary: '#2C3340',  // City Avenues (e.g. 100ft Road)
-      tertiary: '#252B36',   // Urban Collectors
-      residential: '#20252E',// Residential Streets
-      unclassified: '#20252E',
-      service: '#1A1E26',
-      highway: '#475569',
-      arterial: '#333B48',
-      local: '#20252E'
+      motorway: '#4C5B72',   // Expressways (e.g. Bangalore-Mysore NE-1)
+      trunk: '#435165',      // National Highways (e.g. NH-44)
+      primary: '#3A4658',    // Major City Arterials (e.g. Outer Ring Road, MG Road)
+      secondary: '#323D4E',  // City Avenues (e.g. 100ft Road)
+      tertiary: '#2B3444',   // Urban Collectors
+      residential: '#252D3B',// Residential Streets (crisp visible slate asphalt)
+      unclassified: '#252D3B',
+      service: '#1F2633',
+      highway: '#4C5B72',
+      arterial: '#3A4658',
+      local: '#252D3B'
     };
 
     // Helper: Draw curved polyline path
@@ -282,7 +282,8 @@ export class Renderer {
       ctx.restore();
     }
 
-    // Pass 1: Road Casing / Girder Casing (seamless junction merging)
+    // Filter and collect unique physical road edges in viewport
+    const passEdges = [];
     for (const [, edge] of graph.edges) {
       const isElevated = (edge.layer || 0) > 0 || edge.isBridge;
       if (isFlyoverPass && !isElevated) continue;
@@ -296,13 +297,35 @@ export class Renderer {
       if (!this.isInsideViewport(from.x, from.y, bounds) && !this.isInsideViewport(to.x, to.y, bounds)) {
         continue;
       }
+      passEdges.push(edge);
+    }
 
+    // Sort edges by mobility hierarchy: minor roads first, major corridors last
+    // This guarantees that major road asphalt & lane markings cleanly overlay minor road connections
+    const TIER_ORDER = {
+      gully: 0, service: 0,
+      cross: 1, residential: 1, unclassified: 1,
+      collector: 2, tertiary: 2,
+      main: 3, secondary: 3,
+      arterial: 4, primary: 4, trunk: 5, motorway: 6
+    };
+    passEdges.sort((a, b) => {
+      const tA = TIER_ORDER[a.roadTier] || TIER_ORDER[a.type] || 0;
+      const tB = TIER_ORDER[b.roadTier] || TIER_ORDER[b.type] || 0;
+      return tA - tB;
+    });
+
+    // Pass 1: Road Casing / Girder Casing (seamless junction merging)
+    for (const edge of passEdges) {
+      const isElevated = (edge.layer || 0) > 0 || edge.isBridge;
       const { totalLanes, lw, roadTier, tierConfig } = getRoadInfo(edge);
       let baseW = totalLanes * lw;
       if (detail === 'overview') {
         baseW = roadTier === 'arterial' ? 4.2 / z : (roadTier === 'main' ? 2.6 / z : 1.4 / z);
       } else if (detail === 'district') {
         baseW = Math.max(baseW, (roadTier === 'arterial' ? 3.6 : (roadTier === 'main' ? 2.4 : 1.6)) / z);
+      } else {
+        baseW = Math.max(baseW, (roadTier === 'arterial' ? 4.0 : (roadTier === 'main' ? 3.0 : 2.5)));
       }
       const w = baseW * z;
 
@@ -314,7 +337,7 @@ export class Renderer {
         ctx.lineWidth = w + 2.0 * Math.max(1, z * 0.3);
       } else {
         ctx.strokeStyle = tierConfig.casingColor || '#07090C'; // Paved shoulder edge / road boundary
-        ctx.lineWidth = w + (roadTier === 'arterial' ? 2.6 : 1.4) * Math.max(1, z * 0.4);
+        ctx.lineWidth = w + (roadTier === 'arterial' ? 2.6 : 1.6) * Math.max(1, z * 0.4);
       }
       ctx.lineCap = 'round';
       drawEdgePath(edge.geometry);
@@ -322,26 +345,16 @@ export class Renderer {
     }
 
     // Pass 2: Road Asphalt Fill & IRC Markings
-    for (const [, edge] of graph.edges) {
+    for (const edge of passEdges) {
       const isElevated = (edge.layer || 0) > 0 || edge.isBridge;
-      if (isFlyoverPass && !isElevated) continue;
-      if (!isFlyoverPass && isElevated) continue;
-
-      if (edge.from > edge.to && graph.edges.has(`${edge.to}->${edge.from}`)) continue;
-      const from = graph.nodes.get(edge.from);
-      const to = graph.nodes.get(edge.to);
-      if (!from || !to) continue;
-
-      if (!this.isInsideViewport(from.x, from.y, bounds) && !this.isInsideViewport(to.x, to.y, bounds)) {
-        continue;
-      }
-
       const { isTwoWay, oppLanes, fwdLanes, totalLanes, lw, roadTier, divider, tierConfig } = getRoadInfo(edge);
       let baseW = totalLanes * lw;
       if (detail === 'overview') {
         baseW = roadTier === 'arterial' ? 4.2 / z : (roadTier === 'main' ? 2.6 / z : 1.4 / z);
       } else if (detail === 'district') {
         baseW = Math.max(baseW, (roadTier === 'arterial' ? 3.6 : (roadTier === 'main' ? 2.4 : 1.6)) / z);
+      } else {
+        baseW = Math.max(baseW, (roadTier === 'arterial' ? 4.0 : (roadTier === 'main' ? 3.0 : 2.5)));
       }
       const w = baseW * z;
 
@@ -595,41 +608,41 @@ export class Renderer {
           }
 
           // 1.B: High-visibility Authentic Traffic Signal Head on roadside curb
-          const curbOffset = carriagewayW + 3.0 * z;
+          const curbOffset = carriagewayW + 3.2 * z;
           const curbX = sStop.x - perpX * curbOffset;
           const curbY = sStop.y - perpY * curbOffset;
 
           if (z >= 1.4) {
-            // Detailed 3-lens signal head facing approaching traffic
+            // Detailed 3-lens signal head aligned along the roadside curb
             const roadAngle = Math.atan2(dirY, dirX);
             ctx.save();
             ctx.translate(curbX, curbY);
             ctx.rotate(roadAngle);
 
-            const boxW = Math.min(7.0, Math.max(3.8, 2.8 * z));
-            const boxH = Math.min(18.0, Math.max(9.5, 7.2 * z));
-            const lensR = Math.min(2.4, Math.max(1.2, 0.9 * z));
-            const lensSpacing = boxH * 0.28;
+            const boxL = Math.min(10.5, Math.max(6.5, 4.6 * z)); // Length along curb
+            const boxW = Math.min(4.2, Math.max(2.6, 1.8 * z));  // Width across curb
+            const lensR = Math.min(1.5, Math.max(0.8, 0.65 * z));
+            const lensSpacing = boxL * 0.28;
 
             // Signal housing (dark casing with subtle outline)
             ctx.fillStyle = '#0F172A';
             ctx.strokeStyle = '#334155';
-            ctx.lineWidth = Math.min(1.2, 0.5 * z);
+            ctx.lineWidth = Math.min(1.0, 0.4 * z);
             ctx.beginPath();
-            ctx.roundRect(-boxW * 0.5, -boxH * 0.5, boxW, boxH, Math.min(2.0, 0.8 * z));
+            ctx.roundRect(-boxL * 0.5, -boxW * 0.5, boxL, boxW, Math.min(1.5, 0.6 * z));
             ctx.fill();
             ctx.stroke();
 
-            // 3 Lenses: RED (top), AMBER (middle), GREEN (bottom)
+            // 3 Lenses: RED (incoming side), AMBER (middle), GREEN (intersection side)
             // Lens 1: RED
             const isRedLit = (appColor === 'RED');
             ctx.fillStyle = isRedLit ? '#FF3B5C' : '#3F1219';
             ctx.beginPath();
-            ctx.arc(0, -lensSpacing, lensR, 0, Math.PI * 2);
+            ctx.arc(-lensSpacing, 0, lensR, 0, Math.PI * 2);
             ctx.fill();
             if (isRedLit && z >= 2.0) {
               ctx.shadowColor = '#FF3B5C';
-              ctx.shadowBlur = 6 * z;
+              ctx.shadowBlur = 5 * z;
               ctx.fill();
               ctx.shadowBlur = 0;
             }
@@ -642,7 +655,7 @@ export class Renderer {
             ctx.fill();
             if (isYellowLit && z >= 2.0) {
               ctx.shadowColor = '#FFB400';
-              ctx.shadowBlur = 6 * z;
+              ctx.shadowBlur = 5 * z;
               ctx.fill();
               ctx.shadowBlur = 0;
             }
@@ -651,26 +664,26 @@ export class Renderer {
             const isGreenLit = (appColor === 'GREEN');
             ctx.fillStyle = isGreenLit ? '#00E87A' : '#062E19';
             ctx.beginPath();
-            ctx.arc(0, lensSpacing, lensR, 0, Math.PI * 2);
+            ctx.arc(lensSpacing, 0, lensR, 0, Math.PI * 2);
             ctx.fill();
             if (isGreenLit && z >= 2.0) {
               ctx.shadowColor = '#00E87A';
-              ctx.shadowBlur = 6 * z;
+              ctx.shadowBlur = 5 * z;
               ctx.fill();
               ctx.shadowBlur = 0;
             }
 
             ctx.restore();
           } else {
-            // Overview zoom: luminous signal lamp dot
-            const lampRadius = Math.min(5.0, Math.max(2.6, 2.2 * z));
+            // Overview zoom: luminous signal lamp dot on curb
+            const lampRadius = Math.min(4.0, Math.max(2.2, 1.8 * z));
             ctx.fillStyle = hex;
             ctx.beginPath();
             ctx.arc(curbX, curbY, lampRadius, 0, Math.PI * 2);
             ctx.fill();
 
             ctx.strokeStyle = '#0F172A';
-            ctx.lineWidth = Math.min(1.4, 0.8 * z);
+            ctx.lineWidth = Math.min(1.2, 0.6 * z);
             ctx.stroke();
           }
           ctx.restore();

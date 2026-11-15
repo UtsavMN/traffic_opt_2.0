@@ -26,12 +26,12 @@ export async function renderBuildingsToBitmap(buildingsGeoJson, transform, width
   // Define styles
   // High-contrast modern dark-mode building styles
   const styles = {
-    residential: { fill: '#1B1D25', stroke: 'rgba(255,255,255,0.14)' },
-    commercial: { fill: '#222630', stroke: 'rgba(255,255,255,0.18)' },
-    apartments: { fill: '#1D212A', stroke: 'rgba(255,255,255,0.14)' },
-    hospital: { fill: '#1A2135', stroke: 'rgba(61,158,255,0.35)' },
-    school: { fill: '#25211B', stroke: 'rgba(255,180,0,0.25)' },
-    default: { fill: '#1B1D25', stroke: 'rgba(255,255,255,0.12)' }
+    residential: { fill: '#101319', stroke: 'rgba(255,255,255,0.06)' },
+    commercial: { fill: '#141820', stroke: 'rgba(255,255,255,0.07)' },
+    apartments: { fill: '#11151D', stroke: 'rgba(255,255,255,0.05)' },
+    hospital: { fill: '#121A28', stroke: 'rgba(61,158,255,0.22)' },
+    school: { fill: '#1B1813', stroke: 'rgba(255,180,0,0.18)' },
+    default: { fill: '#101319', stroke: 'rgba(255,255,255,0.05)' }
   };
 
   for (const b of buildings) {

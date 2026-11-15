@@ -62,7 +62,7 @@ export class Intersection {
         const nextDir = nsQ >= ewQ ? 'N' : 'E';
         if (nextDir !== this.policeDirection) {
           this.policeDirection = nextDir;
-          const currentIsNS = this.trafficLight.currentPhase.includes('NS');
+          const currentIsNS = this.trafficLight?.currentPhase ? this.trafficLight.currentPhase.includes('NS') : true;
           if ((nextDir === 'N' && !currentIsNS) || (nextDir === 'E' && currentIsNS)) {
             this.trafficLight.forcePhase(currentIsNS ? 1 : 3); // Brisk yellow transition
           }
@@ -70,7 +70,7 @@ export class Intersection {
       } else if (!this.policeInitialTransitionTriggered && this.policeDirection) {
         // Initial dispatch priority
         this.policeInitialTransitionTriggered = true;
-        const currentIsNS = this.trafficLight.currentPhase.includes('NS');
+        const currentIsNS = this.trafficLight?.currentPhase ? this.trafficLight.currentPhase.includes('NS') : true;
         if ((this.policeDirection === 'N' && !currentIsNS) || (this.policeDirection === 'E' && currentIsNS)) {
           this.trafficLight.forcePhase(currentIsNS ? 1 : 3);
         }
@@ -87,7 +87,7 @@ export class Intersection {
     this.trafficLight.update(dt);
     
     // Green Efficiency Tracking (only for active intersections)
-    const currentPhase = this.trafficLight.currentPhase;
+    const currentPhase = this.trafficLight?.currentPhase || 'FREE_FLOW';
     if (this.lastObservedPhase !== currentPhase) {
       const prevPhase = this.lastObservedPhase;
       this.lastObservedPhase = currentPhase;

@@ -716,6 +716,7 @@ export class Vehicle {
       
       if (this.segmentProgress >= 1) {
         this.segmentProgress = 0;
+        const dischargeWait = this.currentWaitTime || 0;
         this.currentWaitTime = 0;
         this.waitTime = 0;
         this.clearingJunction = false;
@@ -730,7 +731,7 @@ export class Vehicle {
           crossedInt.vehiclesPassedThisGreenPhase = (crossedInt.vehiclesPassedThisGreenPhase || 0) + 1;
         }
         if (this.engine) {
-          this.engine.recordIntersectionDischarge();
+          this.engine.recordIntersectionDischarge(dischargeWait);
         }
 
         if (this.routeIndex >= this.route.length - 1) {

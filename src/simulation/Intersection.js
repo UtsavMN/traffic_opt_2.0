@@ -88,21 +88,24 @@ export class Intersection {
 
     this.trafficLight.update(dt);
     
-    // Green Efficiency Tracking (only for active intersections)
+    // Green Efficiency Tracking (triggered on every completed green phase with traffic demand)
     const currentPhase = this.trafficLight?.currentPhase || 'FREE_FLOW';
     if (this.lastObservedPhase !== currentPhase) {
       const prevPhase = this.lastObservedPhase;
       this.lastObservedPhase = currentPhase;
-      if (this.getTotalQueue() > 0) {
-        if (prevPhase === 'NS_GREEN') {
-          const hadVehicles = this.getQueueNS() > 0 || this.vehiclesPassedThisGreenPhase > 0;
+      if (prevPhase === 'NS_GREEN' || prevPhase === 'EW_GREEN') {
+        const queueNS = this.getQueueNS();
+        const queueEW = this.getQueueEW();
+        const passed = this.vehiclesPassedThisGreenPhase || 0;
+        const totalTrafficDemand = queueNS + queueEW + passed;
+        
+        // Only record phases where traffic demand was present at the junction
+        if (totalTrafficDemand > 0) {
+          const activeQueue = prevPhase === 'NS_GREEN' ? queueNS : queueEW;
+          const hadVehicles = activeQueue > 0 || passed > 0;
           if (this.onGreenPhaseEnd) this.onGreenPhaseEnd(hadVehicles);
-          this.vehiclesPassedThisGreenPhase = 0;
-        } else if (prevPhase === 'EW_GREEN') {
-          const hadVehicles = this.getQueueEW() > 0 || this.vehiclesPassedThisGreenPhase > 0;
-          if (this.onGreenPhaseEnd) this.onGreenPhaseEnd(hadVehicles);
-          this.vehiclesPassedThisGreenPhase = 0;
         }
+        this.vehiclesPassedThisGreenPhase = 0;
       }
     }
 

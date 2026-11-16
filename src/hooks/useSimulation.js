@@ -70,6 +70,7 @@ export function useSimulation() {
         waitingCount: data.waitingCount || 0,
         avgWaitTime: data.avgWaitTime,
         throughput: data.throughput,
+        greenEfficiency: data.greenEfficiency,
         spawnRate: data.spawnRate,
         congestionLevel: data.congestionLevel,
         avgSpeedKmh: data.avgSpeedKmh,

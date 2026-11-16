@@ -9,6 +9,13 @@ function getKPIColor(value, thresholds, dir) {
   return '#E8EAED';
 }
 
+function formatCurrency(val) {
+  if (!val || isNaN(val)) return '0';
+  if (val >= 100000) return `${(val / 100000).toFixed(1)}L`;
+  if (val >= 1000) return `${(val / 1000).toFixed(1)}k`;
+  return Math.round(val).toLocaleString('en-IN');
+}
+
 export default function MetricsDashboard() {
   const vehicleCount = useSimStore(s => s.vehicleCount);
 
@@ -87,13 +94,13 @@ export default function MetricsDashboard() {
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.4)' }}>EST. ECONOMIC LOSS</div>
                 <div style={{ fontSize: 16, fontFamily: '"DM Mono", monospace', fontWeight: 700, color: '#FF3B5C', marginTop: 2 }}>
-                  ₹{economicLoss.toFixed(0)}
+                  ₹{formatCurrency(economicLoss)}
                 </div>
               </div>
               <div style={{ flex: 1, borderLeft: '1px solid rgba(255,255,255,0.06)', paddingLeft: 12 }}>
                 <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.4)' }}>AI MONEY SAVED</div>
                 <div style={{ fontSize: 16, fontFamily: '"DM Mono", monospace', fontWeight: 700, color: '#00E87A', marginTop: 2 }}>
-                  ₹{moneySaved.toFixed(0)}
+                  ₹{formatCurrency(moneySaved)}
                 </div>
               </div>
             </div>
@@ -116,7 +123,7 @@ export default function MetricsDashboard() {
           </div>
           <div className="metric-card">
             <span className="metric-card__label">THROUGHPUT</span>
-            <span className="metric-card__value" style={{ color: getKPIColor(throughput, [10, 20, 30], 'higher') }}>
+            <span className="metric-card__value" style={{ color: getKPIColor(throughput, [100, 200, 300], 'higher') }}>
               {throughput}/min
             </span>
           </div>
@@ -128,7 +135,7 @@ export default function MetricsDashboard() {
           </div>
           <div className="metric-card">
             <span className="metric-card__label">IMBALANCE</span>
-            <span className="metric-card__value" style={{ color: getKPIColor(imbalance, [10, 25, 40], 'lower') }}>
+            <span className="metric-card__value" style={{ color: getKPIColor(imbalance, [4, 8, 15], 'lower') }}>
               {imbalance.toFixed(0)}
             </span>
           </div>
@@ -146,7 +153,7 @@ export default function MetricsDashboard() {
           </div>
           <div className="metric-card">
             <span className="metric-card__label">AVG SPEED</span>
-            <span className="metric-card__value" style={{ color: getKPIColor(avgSpeedKmh, [12, 18, 28], 'higher') }}>
+            <span className="metric-card__value" style={{ color: getKPIColor(avgSpeedKmh, [20, 30, 45], 'higher') }}>
               {avgSpeedKmh.toFixed(1)} km/h
             </span>
           </div>

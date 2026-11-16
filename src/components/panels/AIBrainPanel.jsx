@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAIStore } from '../../store/aiStore.js';
 import { useUIStore } from '../../store/uiStore.js';
+import { getGPUInfo } from '../../utils/gpuUtils.js';
 import { AreaChart, Area, ResponsiveContainer, YAxis, Tooltip } from 'recharts';
 
 const ACTION_LABELS = {
@@ -21,6 +22,7 @@ export default function AIBrainPanel({ getIntersectionData }) {
   const dynamicStats = useAIStore(s => s.dynamicStats);
   const selectedId = useUIStore(s => s.selectedIntersection);
   const [intData, setIntData] = useState(null);
+  const [gpuInfo] = useState(() => getGPUInfo());
 
   // Poll intersection data
   useEffect(() => {
@@ -48,6 +50,27 @@ export default function AIBrainPanel({ getIntersectionData }) {
         <div className="panel-section__title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>AI Engine</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {/* GPU Acceleration Status */}
+            <span
+              style={{
+                fontSize: 9,
+                fontWeight: 600,
+                padding: '2px 5px',
+                borderRadius: 4,
+                letterSpacing: '0.04em',
+                background: gpuInfo.isHardwareAccelerated ? 'rgba(0, 232, 122, 0.12)' : 'rgba(100, 116, 139, 0.15)',
+                color: gpuInfo.isHardwareAccelerated ? '#00E87A' : '#94A3B8',
+                border: `1px solid ${gpuInfo.isHardwareAccelerated ? 'rgba(0, 232, 122, 0.3)' : 'rgba(100, 116, 139, 0.25)'}`,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 3,
+              }}
+              title={`GPU Hardware: ${gpuInfo.rendererName} (${gpuInfo.backend})`}
+            >
+              <span>⚡</span>
+              <span>GPU ON</span>
+            </span>
+
             <span style={{
               fontSize: 9,
               fontWeight: 600,

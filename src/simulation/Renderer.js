@@ -1,6 +1,7 @@
 import { SIGNAL_COLORS } from './TrafficLight.js';
 import { Camera } from './Camera.js';
 import { LANE_WIDTH_PX, REAL_LANE_WIDTH_M, ROAD_TIER_CONFIG, getLaneWidthM, CANVAS_SCALE, getCanvasScale } from '../constants.js';
+import { getOptimal2DContext } from '../utils/gpuUtils.js';
 
 /**
  * Renderer — All canvas draw calls, layered back-to-front
@@ -8,7 +9,7 @@ import { LANE_WIDTH_PX, REAL_LANE_WIDTH_M, ROAD_TIER_CONFIG, getLaneWidthM, CANV
 export class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d');
+    this.ctx = getOptimal2DContext(canvas) || canvas.getContext('2d');
     this.camera = new Camera(canvas);
     this.overlays = {
       heatmap: false,
@@ -140,7 +141,7 @@ export class Renderer {
         this._surfaceRoadCanvas.width = this.canvas.width;
         this._surfaceRoadCanvas.height = this.canvas.height;
       }
-      this._surfaceRoadCtx = this._surfaceRoadCanvas.getContext('2d');
+      this._surfaceRoadCtx = getOptimal2DContext(this._surfaceRoadCanvas) || this._surfaceRoadCanvas.getContext('2d');
       const dpr = window.devicePixelRatio || 1;
       this._surfaceRoadCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       this._surfaceRoadCtx.clearRect(0, 0, this.width, this.height);

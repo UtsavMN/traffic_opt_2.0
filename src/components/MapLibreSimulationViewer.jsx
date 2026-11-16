@@ -1,8 +1,16 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Map, NavigationControl } from 'maplibre-gl';
+import { Map, NavigationControl, setWorkerCount } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { getMetersPerPixel } from '../utils/geoUtils.js';
+import { getGPUInfo, getOptimal2DContext, getMapLibreContextAttributes } from '../utils/gpuUtils.js';
 import { useUIStore } from '../store/uiStore.js';
+
+// Disable redundant MapLibre vector worker threads for hardware-accelerated raster tile rendering
+try {
+  setWorkerCount(0);
+} catch (e) {
+  // Ignore
+}
 
 const MAP_STYLES = {
   osm_dark: {
@@ -92,6 +100,7 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
   const setMapStyle = useUIStore(s => s.setMapStyle);
 
   const [is3D, setIs3D] = useState(false);
+  const [gpuInfo, setGpuInfo] = useState(() => getGPUInfo());
 
   // Initialize MapLibre
   useEffect(() => {
@@ -99,7 +108,7 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
 
     const map = new Map({
       container: containerRef.current,
-      style: MAP_STYLES[mapStyle] || MAP_STYLES.carto_dark,
+      style: MAP_STYLES[mapStyle] || MAP_STYLES.osm_dark,
       center: [77.6142, 13.0038],
       zoom: 16.5,
       minZoom: 13,
@@ -107,6 +116,7 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
       pitch: 0,
       bearing: 0,
       attributionControl: false,
+      canvasContextAttributes: getMapLibreContextAttributes(),
     });
 
     mapRef.current = map;
@@ -175,7 +185,7 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
           canvas.height = Math.round(height * dpr);
         }
 
-        const ctx = canvas.getContext('2d');
+        const ctx = getOptimal2DContext(canvas) || canvas.getContext('2d');
         ctx.save();
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, width, height);
@@ -569,6 +579,33 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
           >
             {is3D ? '3D TILT ON' : '3D TILT'}
           </button>
+
+          <div style={{ width: 1, height: 16, background: 'rgba(255, 255, 255, 0.15)', margin: '0 4px' }} />
+
+          {/* GPU Hardware Acceleration Indicator */}
+          <div
+            title={`Hardware Acceleration: ${gpuInfo.rendererName}\nBackend: ${gpuInfo.backend}\nWebGL: ${gpuInfo.glVersion}\nDedicated GPU: ${gpuInfo.isDedicated ? 'Yes' : 'Integrated / Hybrid'}`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              fontSize: 10,
+              fontWeight: 700,
+              padding: '3px 8px',
+              borderRadius: 5,
+              border: gpuInfo.isHardwareAccelerated ? '1px solid rgba(0, 232, 122, 0.45)' : '1px solid rgba(255, 255, 255, 0.15)',
+              background: gpuInfo.isHardwareAccelerated ? 'rgba(0, 232, 122, 0.12)' : 'rgba(255, 255, 255, 0.06)',
+              color: gpuInfo.isHardwareAccelerated ? '#00E87A' : '#A0AEC0',
+              cursor: 'default',
+              userSelect: 'none',
+            }}
+          >
+            <span>⚡</span>
+            <span>{gpuInfo.rendererName ? (gpuInfo.rendererName.length > 20 ? gpuInfo.rendererName.slice(0, 18) + '…' : gpuInfo.rendererName) : 'GPU'}</span>
+            <span style={{ fontSize: 8.5, opacity: 0.8, background: 'rgba(0, 0, 0, 0.35)', padding: '1px 4px', borderRadius: 3 }}>
+              {gpuInfo.backend}
+            </span>
+          </div>
         </div>
 
         {/* Quick Bengaluru Landmark Jump Pills */}

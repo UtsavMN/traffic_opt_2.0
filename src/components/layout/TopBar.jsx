@@ -3,6 +3,7 @@ import { useSimStore } from '../../store/simStore.js';
 import { useUIStore } from '../../store/uiStore.js';
 import { formatTime } from '../../utils/statistics.js';
 import { SCENARIOS } from '../../city/CityLoader.js';
+import { getGPUInfo } from '../../utils/gpuUtils.js';
 
 const WEATHER_ICONS = {
   clear: '☀️', light_rain: '🌦️', heavy_rain: '🌧️',
@@ -25,6 +26,7 @@ export default function TopBar({ setTimeOfDay, setTimeLocked, togglePause, resta
   const running = useSimStore(s => s.running);
   const viewMode = useUIStore(s => s.viewMode);
   const setViewMode = useUIStore(s => s.setViewMode);
+  const [gpuInfo] = useState(() => getGPUInfo());
 
   const [showTimeModal, setShowTimeModal] = useState(false);
   const modalRef = useRef(null);
@@ -279,6 +281,34 @@ export default function TopBar({ setTimeOfDay, setTimeLocked, togglePause, resta
             <span>🔄</span>
             <span>RESTART</span>
           </button>
+        </div>
+
+        <div className="topbar__divider" />
+        
+        {/* Hardware GPU Acceleration Indicator */}
+        <div
+          title={`GPU Accelerator: ${gpuInfo.rendererName}\nVendor: ${gpuInfo.rawVendor}\nBackend: ${gpuInfo.backend}\nWebGL: ${gpuInfo.glVersion}`}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            padding: '3px 8px',
+            borderRadius: 14,
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: '0.02em',
+            border: gpuInfo.isHardwareAccelerated ? '1px solid rgba(0, 232, 122, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)',
+            background: gpuInfo.isHardwareAccelerated ? 'rgba(0, 232, 122, 0.12)' : 'rgba(255, 255, 255, 0.05)',
+            color: gpuInfo.isHardwareAccelerated ? '#00E87A' : '#A0AEC0',
+            cursor: 'default',
+            userSelect: 'none',
+          }}
+        >
+          <span style={{ fontSize: 11 }}>⚡</span>
+          <span>GPU: {gpuInfo.rendererName ? (gpuInfo.rendererName.length > 20 ? gpuInfo.rendererName.slice(0, 18) + '…' : gpuInfo.rendererName) : 'HARDWARE'}</span>
+          <span style={{ fontSize: 8.5, opacity: 0.75, background: 'rgba(0, 0, 0, 0.3)', padding: '1px 4px', borderRadius: 3 }}>
+            {gpuInfo.backend}
+          </span>
         </div>
 
         <div className="topbar__divider" />

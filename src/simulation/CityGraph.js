@@ -21,13 +21,13 @@ export class CityGraph {
     this._cachedBorderNodes = null;
   }
 
-  addNode(id, x, y, type = 'junction', zone = 'residential', layer = 0) {
-    this.nodes.set(id, { id, x, y, type, zone, layer: layer || 0, connections: [] });
+  addNode(id, x, y, type = 'junction', zone = 'residential', layer = 0, lng = null, lat = null) {
+    this.nodes.set(id, { id, x, y, lng, lat, type, zone, layer: layer || 0, connections: [] });
     if (!this.adjacency.has(id)) this.adjacency.set(id, new Set());
     this._cachedBorderNodes = null;
   }
 
-  addEdge(fromId, toId, lanes = 2, type = 'local', speedLimit = 40, geometry = null, roadTier = 'cross', laneWidthM = 2.85, name = '', divider = 'none', layer = 0, isBridge = false, isTunnel = false) {
+  addEdge(fromId, toId, lanes = 2, type = 'local', speedLimit = 40, geometry = null, roadTier = 'cross', laneWidthM = 2.85, name = '', divider = 'none', layer = 0, isBridge = false, isTunnel = false, geoCoords = null, lengthMeters = 0) {
     const from = this.nodes.get(fromId);
     const to = this.nodes.get(toId);
     if (!from || !to) return;
@@ -54,6 +54,8 @@ export class CityGraph {
     const dx = to.x - from.x, dy = to.y - from.y;
     const cardinalDir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'E' : 'W') : (dy > 0 ? 'S' : 'N');
 
+    const defaultGeo = (from.lng && to.lng) ? [[from.lng, from.lat], [to.lng, to.lat]] : null;
+
     const edge = {
       id: edgeId,
       from: fromId, to: toId,
@@ -69,7 +71,9 @@ export class CityGraph {
       blocked: 0,
       direction: Math.atan2(dy, dx),
       cardinalDir,
-      geometry: actualGeometry
+      geometry: actualGeometry,
+      geoCoords: geoCoords || defaultGeo,
+      lengthMeters: lengthMeters || (length * 1.13)
     };
 
     this.edges.set(edge.id, edge);

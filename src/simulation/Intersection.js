@@ -4,10 +4,12 @@ import { TrafficLight } from './TrafficLight.js';
  * Intersection — A node in the city graph with traffic signal control
  */
 export class Intersection {
-  constructor(id, x, y, zone = 'residential', layer = 0, isSignalized = true) {
+  constructor(id, x, y, zone = 'residential', layer = 0, isSignalized = true, lng = null, lat = null) {
     this.id = id;
     this.x = x;
     this.y = y;
+    this.lng = lng;
+    this.lat = lat;
     this.zone = zone;
     this.layer = layer || 0;
     this.isSignalized = isSignalized;

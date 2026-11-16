@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useSimStore } from '../../store/simStore.js';
+import { useUIStore } from '../../store/uiStore.js';
 import { formatTime } from '../../utils/statistics.js';
 import { SCENARIOS } from '../../city/CityLoader.js';
 
@@ -22,6 +23,8 @@ export default function TopBar({ setTimeOfDay, setTimeLocked, togglePause, resta
   const scenario = useSimStore(s => s.scenario);
   const simSpeed = useSimStore(s => s.simSpeed);
   const running = useSimStore(s => s.running);
+  const viewMode = useUIStore(s => s.viewMode);
+  const setViewMode = useUIStore(s => s.setViewMode);
 
   const [showTimeModal, setShowTimeModal] = useState(false);
   const modalRef = useRef(null);
@@ -45,6 +48,58 @@ export default function TopBar({ setTimeOfDay, setTimeLocked, togglePause, resta
         <span className="topbar__logo">◆ Sanchar</span>
         <div className="topbar__divider" />
         <span className="topbar__tagline">Digital Twin</span>
+      </div>
+
+      {/* View Mode Toggle: Real Map (OpenStreetMap) vs 2D Canvas */}
+      <div style={{ display: 'inline-flex', alignItems: 'center', background: 'rgba(255, 255, 255, 0.05)', borderRadius: 20, padding: '2px 3px', border: '1px solid rgba(255, 255, 255, 0.1)', marginLeft: 12 }}>
+        <button
+          onClick={() => {
+            setViewMode('real_map');
+            if (window.__sancharEngine) window.__sancharEngine.viewMode = 'real_map';
+          }}
+          title="Switch to Real OpenStreetMap Vector Tile Simulation (True 1:1 Physical Scale)"
+          style={{
+            background: viewMode === 'real_map' ? '#3D9EFF' : 'transparent',
+            color: viewMode === 'real_map' ? '#0A0C0F' : '#E8EAED',
+            fontWeight: 700,
+            fontSize: 11,
+            border: 'none',
+            borderRadius: 16,
+            padding: '3px 10px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <span>🗺️</span>
+          <span>Real Map (v2)</span>
+        </button>
+        <button
+          onClick={() => {
+            setViewMode('canvas');
+            if (window.__sancharEngine) window.__sancharEngine.viewMode = 'canvas';
+          }}
+          title="Switch to 2D Canvas View (Classic)"
+          style={{
+            background: viewMode === 'canvas' ? '#3D9EFF' : 'transparent',
+            color: viewMode === 'canvas' ? '#0A0C0F' : '#E8EAED',
+            fontWeight: 700,
+            fontSize: 11,
+            border: 'none',
+            borderRadius: 16,
+            padding: '3px 10px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <span>🎮</span>
+          <span>2D Canvas</span>
+        </button>
       </div>
 
       <div className="topbar__info">

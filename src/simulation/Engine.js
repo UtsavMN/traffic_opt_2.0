@@ -49,6 +49,7 @@ export class Engine {
     // Simulation state
     this.running = false;
     this.paused = false;
+    this.viewMode = 'real_map';
     this.simSpeed = 1;
     this.spawnRate = 3.5; // vehicles/sec base (calibrated for 1200+ citywide commuter density)
     this.spawnTimer = 0;
@@ -265,7 +266,7 @@ export class Engine {
 
     for (const [id, node] of graph.nodes) {
       const isSignalized = signalizedIds.has(id);
-      const intersection = new Intersection(id, node.x, node.y, node.zone, node.layer || 0, isSignalized);
+      const intersection = new Intersection(id, node.x, node.y, node.zone, node.layer || 0, isSignalized, node.lng, node.lat);
       // Wire up green phase callback (decoupled from React in Intersection.js)
       intersection.onGreenPhaseEnd = (hadVehicles) => {
         if (typeof window !== 'undefined' && (window.__sancharMetrics || window.__trafficOptMetrics)) {
@@ -876,6 +877,7 @@ export class Engine {
   }
 
   _render() {
+    if (this.viewMode === 'real_map') return;
     this.renderer.resize();
     const skyColor = this.timeOfDay.getSkyColor();
     this.renderer.clear(skyColor);

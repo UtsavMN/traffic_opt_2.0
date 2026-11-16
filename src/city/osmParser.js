@@ -1,5 +1,6 @@
 import { CityGraph } from '../simulation/CityGraph.js';
 import { ROAD_TIER_CONFIG } from '../constants.js';
+import { calculatePolylineLengthMeters } from '../utils/geoUtils.js';
 
 /**
  * Parses GeoJSON road network data into a CityGraph
@@ -80,7 +81,7 @@ export function parseOSMRoads(geojson, bounds = null) {
       if (data.layers.has(0)) nodeLayer = 0;
       else if (data.layers.has(1)) nodeLayer = 1;
       else if (data.layers.has(-1)) nodeLayer = -1;
-      graph.addNode(id, pos.x, pos.y, 'junction', 'residential', nodeLayer);
+      graph.addNode(id, pos.x, pos.y, 'junction', 'residential', nodeLayer, data.lng, data.lat);
     }
   }
 
@@ -166,6 +167,7 @@ export function parseOSMRoads(geojson, bounds = null) {
     }
 
     let currentSegmentGeom = [];
+    let currentSegmentGeo = [];
 
     for (let i = 0; i < coords.length; i++) {
       const coord = coords[i];
@@ -174,21 +176,25 @@ export function parseOSMRoads(geojson, bounds = null) {
       
       if (currentSegmentStartId) {
         currentSegmentGeom.push(pos);
+        currentSegmentGeo.push([coord[0], coord[1]]);
       }
 
       if (nodes.has(key)) {
         const nodeId = nodes.get(key);
         if (currentSegmentStartId && currentSegmentStartId !== nodeId) {
-          // Add edge with waypoints, road hierarchy and elevation layers
-          graph.addEdge(currentSegmentStartId, nodeId, forwardLanes, type, speedLimit, currentSegmentGeom, roadTier, laneWidthM, name, divider, layer, isBridge, isTunnel);
+          const segMeters = calculatePolylineLengthMeters(currentSegmentGeo);
+          // Add edge with waypoints, road hierarchy, elevation layers and real GPS geometry
+          graph.addEdge(currentSegmentStartId, nodeId, forwardLanes, type, speedLimit, currentSegmentGeom, roadTier, laneWidthM, name, divider, layer, isBridge, isTunnel, currentSegmentGeo, segMeters);
           if (!oneway && backwardLanes > 0) {
             const revGeom = [...currentSegmentGeom].reverse();
-            graph.addEdge(nodeId, currentSegmentStartId, backwardLanes, type, speedLimit, revGeom, roadTier, laneWidthM, name, divider, layer, isBridge, isTunnel);
+            const revGeo = [...currentSegmentGeo].reverse();
+            graph.addEdge(nodeId, currentSegmentStartId, backwardLanes, type, speedLimit, revGeom, roadTier, laneWidthM, name, divider, layer, isBridge, isTunnel, revGeo, segMeters);
           }
         }
         currentSegmentStartId = nodeId;
         currentSegmentStartKey = key;
         currentSegmentGeom = [pos];
+        currentSegmentGeo = [[coord[0], coord[1]]];
       }
     }
   });
@@ -264,10 +270,12 @@ export function clusterNearbyNodes(graph, CANVAS_SCALE) {
     const cluster = [node, ...nearby];
     const cx = cluster.reduce((s,n) => s+n.x, 0) / cluster.length;
     const cy = cluster.reduce((s,n) => s+n.y, 0) / cluster.length;
+    const superLng = cluster.reduce((s,n) => s + (n.lng || 0), 0) / cluster.length;
+    const superLat = cluster.reduce((s,n) => s + (n.lat || 0), 0) / cluster.length;
     
     const superId = `sj_${node.id}`;
-    // Add the super junction node preserving elevation layer
-    graph.addNode(superId, cx, cy, 'junction', 'residential', node.layer || 0);
+    // Add the super junction node preserving elevation layer and real GPS coordinates
+    graph.addNode(superId, cx, cy, 'junction', 'residential', node.layer || 0, superLng, superLat);
     
     for (const n of cluster) { 
       merged.set(n.id, superId); 
@@ -293,19 +301,27 @@ export function clusterNearbyNodes(graph, CANVAS_SCALE) {
     if (newFrom !== newTo) {
       // Correctly update the polyline geometry endpoints to match the new super-junction node centers!
       let remappedGeom = null;
+      let remappedGeo = edge.geoCoords ? [...edge.geoCoords] : null;
+      const startNode = graph.nodes.get(newFrom);
+      const endNode = graph.nodes.get(newTo);
+
       if (edge.geometry && edge.geometry.length >= 2) {
         remappedGeom = [...edge.geometry];
-        const startNode = graph.nodes.get(newFrom);
-        const endNode = graph.nodes.get(newTo);
         if (startNode) remappedGeom[0] = { x: startNode.x, y: startNode.y };
         if (endNode) remappedGeom[remappedGeom.length - 1] = { x: endNode.x, y: endNode.y };
       }
+      if (remappedGeo && remappedGeo.length >= 2) {
+        if (startNode && startNode.lng) remappedGeo[0] = [startNode.lng, startNode.lat];
+        if (endNode && endNode.lng) remappedGeo[remappedGeo.length - 1] = [endNode.lng, endNode.lat];
+      }
+
       graph.addEdge(
         newFrom, newTo,
         edge.lanes, edge.type, edge.speedLimit,
         remappedGeom,
         edge.roadTier, edge.laneWidthM, edge.name, edge.divider,
-        edge.layer, edge.isBridge, edge.isTunnel
+        edge.layer, edge.isBridge, edge.isTunnel,
+        remappedGeo, edge.lengthMeters || (remappedGeo ? calculatePolylineLengthMeters(remappedGeo) : 0)
       );
     }
   }

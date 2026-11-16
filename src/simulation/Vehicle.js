@@ -1,5 +1,6 @@
 import { Vector2 } from './Vector2.js';
 import { LANE_WIDTH_PX, VEHICLE_DIMS, CANVAS_SCALE } from '../constants.js';
+import { interpolateGeoPoint } from '../utils/geoUtils.js';
 
 const CAR_COLORS = [
   '#3D9EFF','#00E87A','#FFB400','#FF3B5C','#9B6FFF',
@@ -25,8 +26,13 @@ export class Vehicle {
     const dim = VEHICLE_DIMS[type] || VEHICLE_DIMS.car;
     this.id = `v${vehicleIdCounter++}`;
     this.type = type;
+    this.lengthM = dim.length;
+    this.widthM = dim.width;
     this.length = dim.length * CANVAS_SCALE;
     this.width = dim.width * CANVAS_SCALE;
+    this.lng = 0;
+    this.lat = 0;
+    this.bearingDeg = 0;
     
     // Heterogeneous vehicle-specific speed & physics profiles
     this.driverFactor = 0.92 + Math.random() * 0.16; // Natural driver heterogeneity (avoids artificial locking)
@@ -248,6 +254,18 @@ export class Vehicle {
     
     this.pos.x = x + perpX * this.laneOffset;
     this.pos.y = y + perpY * this.laneOffset;
+
+    // Real-world Geographic GPS coordinates [lng, lat] and bearing for MapLibre rendering
+    if (edge.geoCoords && edge.geoCoords.length >= 2) {
+      const geo = interpolateGeoPoint(edge.geoCoords, this.segmentProgress, ((this.laneOffset || 0) / (CANVAS_SCALE || 1)) * 1.75);
+      this.lng = geo.lng;
+      this.lat = geo.lat;
+      this.bearingDeg = geo.bearing;
+    } else if (from.lng && to.lng) {
+      this.lng = from.lng + (to.lng - from.lng) * this.segmentProgress;
+      this.lat = from.lat + (to.lat - from.lat) * this.segmentProgress;
+      this.bearingDeg = (this.heading * 180 / Math.PI + 360) % 360;
+    }
   }
 
   update(dt, intersections, spatialGrid, weatherMult = 1, isNight = false, now = performance.now()) {
@@ -333,24 +351,24 @@ export class Vehicle {
 
         // Spatial speed adaptation at different points:
         if (distToStopLine <= 0) {
-          // A vehicle enters the junction legally ONLY if light is GREEN (or active emergency siren) and moving forward
-          if ((lightColor === 'GREEN' || this.sirenActive) && this.speed > 0.5) {
+          // A vehicle enters the junction legally if light is GREEN (or active emergency siren)
+          if (lightColor === 'GREEN' || this.sirenActive) {
             this.clearingJunction = true;
           }
           if (this.clearingJunction) {
             // Inside intersection box: accelerate briskly to clear junction rapidly
-            currentV0 = freeFlowTarget * 1.25;
-            accelMult = 1.70;
-            headwayTarget = 0.35;
+            currentV0 = freeFlowTarget * 1.30;
+            accelMult = 2.20;
+            headwayTarget = 0.30;
             inGreenDischarge = true;
           }
         } else if (distToStopLine < 130 * CANVAS_SCALE) {
           // Approaching / queued within 130m of intersection
           if (lightColor === 'GREEN' || this.sirenActive) {
-            // Green Wave Surge: Do NOT slow down! Accelerate eagerly to clear the green phase
-            currentV0 = freeFlowTarget * 1.12;
-            accelMult = 1.50;
-            headwayTarget = Math.max(0.40, this.T * 0.60);
+            // Green Wave Surge: Eager Bengaluru green discharge
+            currentV0 = freeFlowTarget * 1.20;
+            accelMult = 1.85;
+            headwayTarget = Math.max(0.35, this.T * 0.50);
             inGreenDischarge = true;
           } else {
             // Decelerate toward stop bar on amber/red

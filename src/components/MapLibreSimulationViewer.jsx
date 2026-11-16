@@ -82,7 +82,7 @@ const BENGALURU_PRESETS = [
   { name: 'Davis Road Junction', coords: [77.6162, 13.0054], zoom: 18.2, pitch: 32 },
   { name: 'Arabic College 4-Way', coords: [77.6200, 13.0180], zoom: 18.4, pitch: 25 },
   { name: 'Tannery Road Corridor', coords: [77.6160, 13.0090], zoom: 18.0, pitch: 30 },
-  { name: 'Armstrong Road', coords: [77.6080, 12.9980], zoom: 18.5, pitch: 20 },
+  { name: 'Armstrong Road', coords: [77.6158, 13.0046], zoom: 18.4, pitch: 24 },
 ];
 
 export default function MapLibreSimulationViewer({ engine, onSelectIntersection }) {
@@ -229,15 +229,17 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
 
               const p = map.project([int.lng, int.lat]);
               const isSelected = selectedIntersection === int.id;
-              const baseRadius = isSelected ? 6.0 : 3.8;
+              const baseRadius = isSelected ? 6.5 : 4.2;
 
               // Dark junction core
-              ctx.fillStyle = 'rgba(12, 18, 28, 0.90)';
+              ctx.fillStyle = 'rgba(12, 18, 28, 0.92)';
               ctx.beginPath();
               ctx.arc(p.x, p.y, baseRadius, 0, Math.PI * 2);
               ctx.fill();
 
               if (int.approaches && int.approaches.length > 0) {
+                const numApps = int.approaches.length;
+                const arcHalfSpan = Math.min(0.44, (Math.PI / Math.max(2, numApps)) * 0.50);
                 for (const app of int.approaches) {
                   const pPrev = map.project([app.prevLng, app.prevLat]);
                   const dx = pPrev.x - p.x;
@@ -246,19 +248,18 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
                   const color = int.trafficLight ? int.trafficLight.getColorForPhase(app.phaseIndex) : 'GREEN';
                   const hex = color === 'GREEN' ? '#00E87A' : (color === 'YELLOW' ? '#FFB400' : '#FF3B5C');
 
-                  const bx = p.x + Math.cos(roadAngle) * (baseRadius + 1.2);
-                  const by = p.y + Math.sin(roadAngle) * (baseRadius + 1.2);
-                  ctx.fillStyle = hex;
+                  ctx.lineWidth = isSelected ? 2.2 : 1.6;
+                  ctx.strokeStyle = hex;
                   ctx.beginPath();
-                  ctx.arc(bx, by, isSelected ? 2.5 : 1.8, 0, Math.PI * 2);
-                  ctx.fill();
+                  ctx.arc(p.x, p.y, baseRadius - 0.6, roadAngle - arcHalfSpan, roadAngle + arcHalfSpan);
+                  ctx.stroke();
                 }
               } else {
                 const colorNS = int.getColorNS();
                 const hex = colorNS === 'GREEN' ? '#00E87A' : (colorNS === 'YELLOW' ? '#FFB400' : '#FF3B5C');
                 ctx.fillStyle = hex;
                 ctx.beginPath();
-                ctx.arc(p.x, p.y, isSelected ? 5.5 : 2.5, 0, Math.PI * 2);
+                ctx.arc(p.x, p.y, isSelected ? 4.5 : 2.5, 0, Math.PI * 2);
                 ctx.fill();
               }
 
@@ -269,7 +270,7 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
               }
             }
           } else {
-            // Street Level Simulation Zoom (zoom >= 16.8): Road-aligned directional arcs, beacons & stop lines
+            // Street Level Simulation Zoom (zoom >= 16.8): Road-aligned directional ring arcs, approach stop bars & curb signal posts
             for (const [, int] of activeEngine.intersections) {
               if (!int.isSignalized || !int.lng || !int.lat) continue;
               // Viewport Culling: Skip if outside visible screen bounds
@@ -279,18 +280,22 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
               if (p.x < -60 || p.x > width + 60 || p.y < -60 || p.y > height + 60) continue;
 
               const isSelected = selectedIntersection === int.id;
-              const baseRadius = Math.max(8, Math.min(18, 11 / mPerPx));
+              const baseRadius = Math.max(9, Math.min(20, 11.5 / mPerPx));
 
-              // Semi-transparent junction disc
-              ctx.fillStyle = 'rgba(10, 16, 24, 0.88)';
+              // Semi-transparent junction core disc
+              ctx.fillStyle = 'rgba(10, 16, 24, 0.92)';
               ctx.beginPath();
               ctx.arc(p.x, p.y, baseRadius, 0, Math.PI * 2);
               ctx.fill();
+              ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+              ctx.lineWidth = 1.0;
+              ctx.stroke();
 
               if (int.approaches && int.approaches.length > 0) {
                 const numApps = int.approaches.length;
                 // Responsive arc span: crisp separation between arms (especially on 5-way/6-way circles)
-                const arcHalfSpan = Math.min(0.48, (Math.PI / Math.max(2, numApps)) * 0.52);
+                const arcHalfSpan = Math.min(0.42, (Math.PI / Math.max(2, numApps)) * 0.48);
+                const ringRadius = baseRadius - 1.5;
 
                 for (const app of int.approaches) {
                   const pPrev = map.project([app.prevLng, app.prevLat]);
@@ -302,34 +307,79 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
                   const hex = color === 'GREEN' ? '#00E87A' : (color === 'YELLOW' ? '#FFB400' : '#FF3B5C');
 
                   // 1. Road-aligned circular ring segment directly facing this incoming road
-                  ctx.lineWidth = Math.max(2.6, baseRadius * 0.30);
+                  ctx.lineWidth = Math.max(2.8, baseRadius * 0.28);
                   ctx.strokeStyle = hex;
                   ctx.beginPath();
-                  ctx.arc(p.x, p.y, baseRadius - 2, roadAngle - arcHalfSpan, roadAngle + arcHalfSpan);
+                  ctx.arc(p.x, p.y, ringRadius, roadAngle - arcHalfSpan, roadAngle + arcHalfSpan);
                   ctx.stroke();
 
-                  // 2. High-intensity LED signal beacon on the rim facing the approaching road
-                  const beaconDist = baseRadius + 2.0;
-                  const bx = p.x + Math.cos(roadAngle) * beaconDist;
-                  const by = p.y + Math.sin(roadAngle) * beaconDist;
-                  ctx.fillStyle = hex;
-                  ctx.beginPath();
-                  ctx.arc(bx, by, Math.max(2.2, baseRadius * 0.22), 0, Math.PI * 2);
-                  ctx.fill();
+                  // Directional luminous notch on green signal
+                  if (color === 'GREEN') {
+                    const notchDist = ringRadius - 1.5;
+                    ctx.fillStyle = '#00FF88';
+                    ctx.beginPath();
+                    ctx.arc(p.x + Math.cos(roadAngle) * notchDist, p.y + Math.sin(roadAngle) * notchDist, 1.8, 0, Math.PI * 2);
+                    ctx.fill();
+                  }
 
-                  // 3. Illuminated Stop Line Bar across the approaching road lanes
-                  const stopDist = baseRadius + Math.max(7, 7.0 / mPerPx);
+                  // 2. Realistic Stop Line Bar across the approaching traffic carriageway
+                  // Set back by IRC standard 3-4m (not floating 14m out or cutting into buildings)
+                  const stopDist = baseRadius + Math.max(8, 7.5 / mPerPx);
                   const stopX = p.x + Math.cos(roadAngle) * stopDist;
                   const stopY = p.y + Math.sin(roadAngle) * stopDist;
                   const perpX = -Math.sin(roadAngle);
                   const perpY = Math.cos(roadAngle);
-                  const roadHalfWidth = Math.max(4.5, (app.lanes || 2) * 3.0 / mPerPx);
 
-                  ctx.strokeStyle = hex;
-                  ctx.lineWidth = Math.max(2.2, 1.8 / mPerPx);
+                  // In Left-Hand Traffic (India): incoming vehicles travel on the LEFT side (+perp direction)
+                  const oppEdge = activeEngine.graph ? activeEngine.graph.edges.get(`${app.edge.to}->${app.edge.from}`) : null;
+                  const isTwoWay = !!oppEdge;
+                  const lanes = app.lanes || 1;
+                  const laneWidthPx = Math.max(3.2, 2.85 / mPerPx);
+                  const carriagewayW = Math.max(4.2, lanes * laneWidthPx);
+
+                  let startX, startY, endX, endY;
+                  if (isTwoWay) {
+                    // Two-way road: stop bar extends from road centerline to the left curb
+                    startX = stopX;
+                    startY = stopY;
+                    endX = stopX + perpX * carriagewayW;
+                    endY = stopY + perpY * carriagewayW;
+                  } else {
+                    // One-way carriageway: stop bar covers entire carriageway width
+                    startX = stopX - perpX * (carriagewayW * 0.5);
+                    startY = stopY - perpY * (carriagewayW * 0.5);
+                    endX = stopX + perpX * (carriagewayW * 0.5);
+                    endY = stopY + perpY * (carriagewayW * 0.5);
+                  }
+
+                  ctx.save();
+                  ctx.lineCap = 'butt';
+                  if (color === 'RED') {
+                    ctx.strokeStyle = '#FF3B5C';
+                    ctx.lineWidth = Math.max(2.2, 1.8 / mPerPx);
+                  } else if (color === 'YELLOW') {
+                    ctx.strokeStyle = '#FFB400';
+                    ctx.lineWidth = Math.max(2.0, 1.5 / mPerPx);
+                  } else {
+                    ctx.strokeStyle = 'rgba(0, 232, 122, 0.40)';
+                    ctx.lineWidth = Math.max(1.4, 1.0 / mPerPx);
+                  }
                   ctx.beginPath();
-                  ctx.moveTo(stopX - perpX * roadHalfWidth, stopY - perpY * roadHalfWidth);
-                  ctx.lineTo(stopX + perpX * roadHalfWidth, stopY + perpY * roadHalfWidth);
+                  ctx.moveTo(startX, startY);
+                  ctx.lineTo(endX, endY);
+                  ctx.stroke();
+                  ctx.restore();
+
+                  // 3. Sleek Curb Traffic Signal Head at sidewalk curb
+                  const curbPostOffset = Math.max(1.8, 1.4 / mPerPx);
+                  const postX = endX + perpX * curbPostOffset;
+                  const postY = endY + perpY * curbPostOffset;
+                  ctx.fillStyle = hex;
+                  ctx.beginPath();
+                  ctx.arc(postX, postY, Math.max(2.0, 1.6 / mPerPx), 0, Math.PI * 2);
+                  ctx.fill();
+                  ctx.strokeStyle = '#0B0F14';
+                  ctx.lineWidth = 0.8;
                   ctx.stroke();
                 }
               } else {

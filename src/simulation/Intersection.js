@@ -87,17 +87,32 @@ export class Intersection {
       // Vector pointing from intersection mouth outwards back along the incoming road
       const dx = pPrev.x - pEnd.x;
       const dy = pPrev.y - pEnd.y;
-      const angle = Math.atan2(dy, dx); // [-PI, PI]
+      const canvasAngle = Math.atan2(dy, dx); // [-PI, PI]
 
       // Geographic coordinates for real map projection
       const toNode = graph.nodes.get(this.id);
       const fromNode = graph.nodes.get(edge.from);
       let endLng = toNode?.lng ?? this.lng;
       let endLat = toNode?.lat ?? this.lat;
-      let prevLng = fromNode?.lng;
-      let prevLat = fromNode?.lat;
+      let prevLng = null;
+      let prevLat = null;
 
-      if (edge.coordinates && edge.coordinates.length >= 2) {
+      if (edge.geoCoords && edge.geoCoords.length >= 2) {
+        const lastCoord = edge.geoCoords[edge.geoCoords.length - 1];
+        endLng = lastCoord[0];
+        endLat = lastCoord[1];
+        // Trace back along the incoming road to find a distinct upstream waypoint
+        for (let k = edge.geoCoords.length - 2; k >= 0; k--) {
+          const pt = edge.geoCoords[k];
+          const dLng = pt[0] - endLng;
+          const dLat = pt[1] - endLat;
+          if (Math.hypot(dLng, dLat) > 0.00002 || k === 0) {
+            prevLng = pt[0];
+            prevLat = pt[1];
+            break;
+          }
+        }
+      } else if (edge.coordinates && edge.coordinates.length >= 2) {
         const lastCoord = edge.coordinates[edge.coordinates.length - 1];
         const secondLast = edge.coordinates[edge.coordinates.length - 2];
         endLng = lastCoord[0];
@@ -105,10 +120,23 @@ export class Intersection {
         prevLng = secondLast[0];
         prevLat = secondLast[1];
       }
-      if (!prevLng || !prevLat) {
-        prevLng = endLng + Math.cos(angle) * 0.0002;
-        prevLat = endLat - Math.sin(angle) * 0.0002;
+
+      if ((!prevLng || !prevLat) && fromNode && fromNode.lng && fromNode.lat) {
+        prevLng = fromNode.lng;
+        prevLat = fromNode.lat;
       }
+
+      if (!prevLng || !prevLat) {
+        prevLng = endLng + Math.cos(canvasAngle) * 0.0002;
+        prevLat = endLat - Math.sin(canvasAngle) * 0.0002;
+      }
+
+      // Compass angle in geographic coordinates (East = 0, North = PI/2)
+      const dLngGeo = (prevLng - endLng) * Math.cos(((endLat || 13.0) * Math.PI) / 180);
+      const dLatGeo = prevLat - endLat;
+      const angle = (Math.abs(dLngGeo) > 1e-9 || Math.abs(dLatGeo) > 1e-9)
+        ? Math.atan2(dLatGeo, dLngGeo)
+        : canvasAngle;
 
       const roadName = edge.name || edge.streetName || '';
 

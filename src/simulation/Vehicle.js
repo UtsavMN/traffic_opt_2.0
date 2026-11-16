@@ -32,7 +32,7 @@ export class Vehicle {
     this.width = dim.width * CANVAS_SCALE;
     this.lng = 0;
     this.lat = 0;
-    this.bearingDeg = 0;
+    this.bearingDeg = undefined;
     
     // Heterogeneous vehicle-specific speed & physics profiles
     this.driverFactor = 0.92 + Math.random() * 0.16; // Natural driver heterogeneity (avoids artificial locking)
@@ -257,14 +257,40 @@ export class Vehicle {
 
     // Real-world Geographic GPS coordinates [lng, lat] and bearing for MapLibre rendering
     if (edge.geoCoords && edge.geoCoords.length >= 2) {
-      const geo = interpolateGeoPoint(edge.geoCoords, this.segmentProgress, ((this.laneOffset || 0) / (CANVAS_SCALE || 1)) * 1.75);
+      // 1:1 physical meter lane offset without artificial inflation
+      const rawOffsetM = (this.laneOffset || 0) / (CANVAS_SCALE || 1);
+      // Bound offset strictly within the physical road carriageway
+      const maxRoadOffset = Math.max(1.1, ((edge.lanes || 1) * (edge.laneWidthM || 2.85)) * 0.45);
+      const laneOffsetM = Math.max(-maxRoadOffset, Math.min(maxRoadOffset, rawOffsetM));
+
+      const geo = interpolateGeoPoint(edge.geoCoords, this.segmentProgress, laneOffsetM);
       this.lng = geo.lng;
       this.lat = geo.lat;
-      this.bearingDeg = geo.bearing;
+
+      // Smooth angular interpolation: vehicles turn realistically through junctions and road bends
+      const targetBearing = geo.bearing;
+      if (this.bearingDeg === undefined) {
+        this.bearingDeg = targetBearing;
+      } else {
+        let diff = (targetBearing - this.bearingDeg) % 360;
+        if (diff < -180) diff += 360;
+        if (diff > 180) diff -= 360;
+        const turnSpeed = dt > 0 ? Math.min(1.0, dt * 14) : 1.0;
+        this.bearingDeg = (this.bearingDeg + diff * turnSpeed + 360) % 360;
+      }
     } else if (from.lng && to.lng) {
       this.lng = from.lng + (to.lng - from.lng) * this.segmentProgress;
       this.lat = from.lat + (to.lat - from.lat) * this.segmentProgress;
-      this.bearingDeg = (this.heading * 180 / Math.PI + 360) % 360;
+      const targetBearing = (this.heading * 180 / Math.PI + 90 + 360) % 360;
+      if (this.bearingDeg === undefined) {
+        this.bearingDeg = targetBearing;
+      } else {
+        let diff = (targetBearing - this.bearingDeg) % 360;
+        if (diff < -180) diff += 360;
+        if (diff > 180) diff -= 360;
+        const turnSpeed = dt > 0 ? Math.min(1.0, dt * 14) : 1.0;
+        this.bearingDeg = (this.bearingDeg + diff * turnSpeed + 360) % 360;
+      }
     }
   }
 

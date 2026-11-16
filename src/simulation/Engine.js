@@ -327,21 +327,28 @@ export class Engine {
       lingarajapuram: { name: 'Lingarajapuram Flyover & Hennur Corridor', nodes: [], corridorNodes: [] },
       gateways: { name: 'Bengaluru Outer Arterial Gateway', nodes: [], corridorNodes: [] }
     };
+    this.allCorridorNodes = [];
+    this.arterialGateways = [];
+
     const spawnable = graph.spawnableNodes || Array.from(graph.nodes.values());
     for (const node of spawnable) {
       // Determine if node sits on an arterial / collector transit corridor
       let isCorridor = false;
+      let isArterialOrMain = false;
       for (const [, edge] of graph.edges) {
         if (edge.from === node.id || edge.to === node.id) {
-          if (edge.type === 'primary' || edge.type === 'trunk' || edge.type === 'secondary' || edge.type === 'tertiary') {
+          if (edge.roadTier === 'arterial' || edge.roadTier === 'main' || edge.type === 'primary' || edge.type === 'trunk' || edge.type === 'secondary') {
             isCorridor = true;
+            isArterialOrMain = true;
             break;
+          } else if (edge.roadTier === 'collector' || edge.type === 'tertiary') {
+            isCorridor = true;
           }
         }
       }
 
       let targetDistrict;
-      if (node.x < 450 || node.x > 3100 || node.y < 800 || node.y > 2800) {
+      if (node.x < 550 || node.x > 3050 || node.y < 850 || node.y > 2750) {
         targetDistrict = this.districts.gateways;
       } else if (node.x < 1800 && node.y >= 1800) {
         targetDistrict = this.districts.cantonment;
@@ -355,6 +362,10 @@ export class Engine {
       targetDistrict.nodes.push(node);
       if (isCorridor) {
         targetDistrict.corridorNodes.push(node);
+        this.allCorridorNodes.push(node);
+      }
+      if (isArterialOrMain && (node.x < 750 || node.x > 2900 || node.y < 950 || node.y > 2650 || graph.getDegree(node.id) <= 2)) {
+        this.arterialGateways.push(node);
       }
     }
   }
@@ -614,6 +625,17 @@ export class Engine {
     else if (rType < 0.995) type = 'truck';     // 4.0% Commercial Freight / Delivery
     else type = 'emergency';                    // 0.5% Emergency Ambulances
 
+    // Limit active ambulances to max 2 across the entire city to prevent cascade preemption
+    if (type === 'emergency') {
+      let activeAmbulances = 0;
+      for (let i = 0; i < this.vehicles.length; i++) {
+        if (this.vehicles[i].alive && this.vehicles[i].type === 'emergency') activeAmbulances++;
+      }
+      if (activeAmbulances >= 2) {
+        type = 'car';
+      }
+    }
+
     const isHeavyTransit = (type === 'bus' || type === 'truck');
 
     let route = null;
@@ -626,30 +648,49 @@ export class Engine {
     const isMorningPeak = hour >= 7.5 && hour <= 11.5;
     const isEveningPeak = hour >= 16.5 && hour <= 20.5;
 
-    // Try up to 2 attempts to pick origin and destination with a valid route (prevents frame drops)
-    for (let attempt = 0; attempt < 2; attempt++) {
+    // 85% Corridor trips, 15% local neighborhood trips (buses & trucks are 100% corridor)
+    const isCorridorTrip = isHeavyTransit || Math.random() < 0.85;
+
+    // Try up to 3 attempts to pick origin and destination with a valid route
+    for (let attempt = 0; attempt < 3; attempt++) {
       let originNode = null;
       let destNode = null;
 
-      if (districtKeys.length > 0) {
-        // 70% corridor/commuter trips, 30% local layout trips (buses/trucks are 100% corridor)
-        const isCorridorTrip = isHeavyTransit || Math.random() < 0.70;
-        
+      if (isCorridorTrip && this.allCorridorNodes && this.allCorridorNodes.length > 0) {
+        // High-density corridor commuter flow:
+        // Pick origin from arterial gateways or major corridor nodes
+        const originPool = (this.arterialGateways && this.arterialGateways.length > 0 && Math.random() < 0.65)
+          ? this.arterialGateways
+          : this.allCorridorNodes;
+        originNode = originPool[Math.floor(Math.random() * originPool.length)];
+
+        // Pick destination across town on corridors (at least 450m away)
+        const destPool = this.allCorridorNodes;
+        for (let dAttempt = 0; dAttempt < 6; dAttempt++) {
+          const cand = destPool[Math.floor(Math.random() * destPool.length)];
+          if (cand && cand.id !== originNode.id) {
+            const dist = Math.hypot(cand.x - originNode.x, cand.y - originNode.y);
+            if (dist > 350 * (CANVAS_SCALE || 1)) {
+              destNode = cand;
+              break;
+            }
+          }
+        }
+        originName = 'Arterial Corridor Origin';
+        destName = 'Bengaluru Transit Destination';
+      } else if (districtKeys.length > 0) {
         let origKey, destKey;
         if (isMorningPeak) {
-          // Morning peak: outer gateways and residential zones funnel toward commercial hubs
           const outerPool = ['gateways', 'benson_town', 'lingarajapuram'];
           const hubPool = ['cantonment', 'frazer_town'];
           origKey = outerPool[Math.floor(Math.random() * outerPool.length)];
           destKey = hubPool[Math.floor(Math.random() * hubPool.length)];
         } else if (isEveningPeak) {
-          // Evening peak: commercial hubs funnel toward outer gateways and residential zones
           const hubPool = ['cantonment', 'frazer_town'];
           const outerPool = ['gateways', 'benson_town', 'lingarajapuram'];
           origKey = hubPool[Math.floor(Math.random() * hubPool.length)];
           destKey = outerPool[Math.floor(Math.random() * outerPool.length)];
         } else {
-          // Off-peak: natural inter-district and intra-district distribution
           origKey = districtKeys[Math.floor(Math.random() * districtKeys.length)];
           destKey = districtKeys[Math.floor(Math.random() * districtKeys.length)];
         }
@@ -657,9 +698,8 @@ export class Engine {
         const oDistrict = this.districts[origKey];
         const dDistrict = this.districts[destKey];
         if (oDistrict && dDistrict) {
-          // Prefer corridor nodes for commuter / heavy transit flow
-          const oPool = (isCorridorTrip && oDistrict.corridorNodes?.length > 0) ? oDistrict.corridorNodes : oDistrict.nodes;
-          const dPool = (isCorridorTrip && dDistrict.corridorNodes?.length > 0) ? dDistrict.corridorNodes : dDistrict.nodes;
+          const oPool = oDistrict.corridorNodes?.length > 0 ? oDistrict.corridorNodes : oDistrict.nodes;
+          const dPool = dDistrict.corridorNodes?.length > 0 ? dDistrict.corridorNodes : dDistrict.nodes;
 
           if (oPool.length > 0 && dPool.length > 0) {
             originNode = oPool[Math.floor(Math.random() * oPool.length)];
@@ -670,10 +710,11 @@ export class Engine {
         }
       }
 
-      // Fallback if districts not initialized or empty
+      // Fallback if not initialized or empty
       if (!originNode || !destNode || originNode.id === destNode.id) {
-        originNode = nodes[Math.floor(Math.random() * nodes.length)];
-        destNode = nodes[Math.floor(Math.random() * nodes.length)];
+        const pool = (this.allCorridorNodes && this.allCorridorNodes.length > 0) ? this.allCorridorNodes : nodes;
+        originNode = pool[Math.floor(Math.random() * pool.length)];
+        destNode = pool[Math.floor(Math.random() * pool.length)];
         originName = 'Bengaluru Hub';
         destName = 'Bengaluru Destination';
       }

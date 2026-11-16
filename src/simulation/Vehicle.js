@@ -485,7 +485,9 @@ export class Vehicle {
       // Continuous highways, flyovers, curved bends, and dead-ends are free-flow.
       if (intObj && intObj.isSignalized && intObj.trafficLight) {
         const dir = this._getDirection();
-        const lightColor = dir ? (dir === 'N' || dir === 'S' ? intObj.trafficLight.getColorNS() : intObj.trafficLight.getColorEW()) : 'GREEN';
+        const lightColor = intObj.getLightColorForEdge
+          ? intObj.getLightColorForEdge(edge.id)
+          : (dir ? (dir === 'N' || dir === 'S' ? intObj.trafficLight.getColorNS() : intObj.trafficLight.getColorEW()) : 'GREEN');
         
         // Stop line is located right before the junction entrance (IRC standard 3-4m)
         stopLineDist = Math.max(3.5, (intObj.maxLanes || 2) * (edge.laneWidthM || 2.85) * CANVAS_SCALE * 0.38);
@@ -547,13 +549,15 @@ export class Vehicle {
         } else if (!stopAtIntersection && distToStopLine > 0 && distToStopLine < 25 * CANVAS_SCALE) {
           // Yellow Box Rule ("Do Not Block The Box"):
           // Only stop if an intersecting vehicle is ACTUALLY stalled/deadlocked inside the core box
-          const isMyPhaseNS = (dir === 'N' || dir === 'S');
+          const myApp = intObj.edgeToApproach ? intObj.edgeToApproach.get(edge.id) : null;
+          const myPhase = myApp ? myApp.phaseIndex : (dir === 'N' || dir === 'S' ? 0 : 1);
           const centerOccupants = spatialGrid.query(intObj.x, intObj.y, stopLineDist * 0.55);
           for (const occupant of centerOccupants) {
             if (occupant.id === this.id || !occupant.alive) continue;
+            const occApp = (intObj.edgeToApproach && occupant.currentEdge) ? intObj.edgeToApproach.get(occupant.currentEdge.id) : null;
             const occDir = occupant._getDirection();
-            const isOccPhaseNS = (occDir === 'N' || occDir === 'S');
-            if (isMyPhaseNS !== isOccPhaseNS && occupant.speed < 1.0 * (CANVAS_SCALE || 1)) {
+            const occPhase = occApp ? occApp.phaseIndex : (occDir === 'N' || occDir === 'S' ? 0 : 1);
+            if (myPhase !== occPhase && occupant.speed < 1.0 * (CANVAS_SCALE || 1)) {
               stopAtIntersection = true;
               intersectionGap = Math.max(0.5, distToStopLine - (this.length / 2));
               break;

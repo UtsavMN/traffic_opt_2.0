@@ -131,8 +131,8 @@ export class AdaptiveController {
 
     const totalQueue = int.getTotalQueue ? int.getTotalQueue() : 0;
     const currentIsNS = (int?.trafficLight?.currentPhase) ? int.trafficLight.currentPhase.includes('NS') : true;
-    const currentQueue = currentIsNS ? int.getQueueNS() : int.getQueueEW();
-    const opposingQueue = currentIsNS ? int.getQueueEW() : int.getQueueNS();
+    const currentQueue = int.getActiveQueue ? int.getActiveQueue() : (currentIsNS ? int.getQueueNS() : int.getQueueEW());
+    const opposingQueue = int.getOpposingQueue ? int.getOpposingQueue() : (currentIsNS ? int.getQueueEW() : int.getQueueNS());
 
     // Corridor & neighbor pressure from GNN state encoder (state[3]: avgNeighborActive, state[4]: avgNeighborOpposing)
     const neighborPressure = (state[3] || 0) + (state[4] || 0);
@@ -267,7 +267,8 @@ export class AdaptiveController {
 
     // Rule 1: Switch if current direction is empty AND opposing has vehicles (must respect MIN_GREEN)
     if (timeInPhase >= this.MIN_GREEN && currentQueue === 0 && opposingQueue > 0) {
-      tl.forcePhase(currentIsNS ? 1 : 3);
+      if (typeof tl.triggerYellow === 'function') tl.triggerYellow();
+      else tl.forcePhase(currentIsNS ? 1 : 3);
       return {
         intersectionId: int.id,
         action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
@@ -279,7 +280,8 @@ export class AdaptiveController {
 
     // Rule 1.5: Starvation Guard — If opposing vehicles have been waiting > 18s at this junction, switch (must respect MIN_GREEN)
     if (timeInPhase >= this.MIN_GREEN && int.maxWait > 18.0 && opposingQueue > 0) {
-      tl.forcePhase(currentIsNS ? 1 : 3);
+      if (typeof tl.triggerYellow === 'function') tl.triggerYellow();
+      else tl.forcePhase(currentIsNS ? 1 : 3);
       return {
         intersectionId: int.id,
         action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
@@ -291,7 +293,8 @@ export class AdaptiveController {
 
     // Rule 2: Force switch if max green reached (starvation prevention)
     if (timeInPhase >= this.MAX_GREEN) {
-      tl.forcePhase(currentIsNS ? 1 : 3);
+      if (typeof tl.triggerYellow === 'function') tl.triggerYellow();
+      else tl.forcePhase(currentIsNS ? 1 : 3);
       return {
         intersectionId: int.id,
         action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
@@ -304,7 +307,8 @@ export class AdaptiveController {
     // Rule 3: Significant queue imbalance (must respect MIN_GREEN)
     const dynamicThreshold = Math.max(3, currentQueue * 0.5);
     if (timeInPhase >= this.MIN_GREEN && opposingQueue > currentQueue + dynamicThreshold) {
-      tl.forcePhase(currentIsNS ? 1 : 3);
+      if (typeof tl.triggerYellow === 'function') tl.triggerYellow();
+      else tl.forcePhase(currentIsNS ? 1 : 3);
       return {
         intersectionId: int.id,
         action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
@@ -317,7 +321,8 @@ export class AdaptiveController {
     // Rule 4: Ideal green time fulfilled (must respect MIN_GREEN)
     const ideal = Math.max(this.MIN_GREEN, this._idealGreen(currentQueue));
     if (timeInPhase >= ideal && opposingQueue > 0) {
-      tl.forcePhase(currentIsNS ? 1 : 3);
+      if (typeof tl.triggerYellow === 'function') tl.triggerYellow();
+      else tl.forcePhase(currentIsNS ? 1 : 3);
       return {
         intersectionId: int.id,
         action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
@@ -337,7 +342,11 @@ export class AdaptiveController {
 
     switch (actionName) {
       case 'SWITCH_PHASE':
-        tl.forcePhase(currentIsNS ? 1 : 3); // safely transition to yellow (1 for NS, 3 for EW)
+        if (typeof tl.triggerYellow === 'function') {
+          tl.triggerYellow();
+        } else {
+          tl.forcePhase(currentIsNS ? 1 : 3); // safely transition to yellow (1 for NS, 3 for EW)
+        }
         break;
       case 'KEEP_PHASE':
       default:

@@ -293,6 +293,11 @@ export class Engine {
       if (toInt) toInt.maxLanes = Math.max(toInt.maxLanes || 2, roadLanes);
     }
 
+    // Initialize road-aligned incoming approaches and conflict-free multi-phase controllers
+    for (const [, int] of this.intersections) {
+      int.initApproaches(graph);
+    }
+
     this.intersectionGrid = new SpatialGrid(80);
     for (const int of this.intersections.values()) {
       this.intersectionGrid.insert({
@@ -789,6 +794,11 @@ export class Engine {
       if (!int.isSignalized) continue;
       int.queues.N = 0; int.queues.S = 0;
       int.queues.E = 0; int.queues.W = 0;
+      if (int.approaches) {
+        for (const app of int.approaches) {
+          app.queue = 0;
+        }
+      }
       int.maxWait = 0;
       int.totalWaitSeconds = 0;
       int.emergencyApproaching = false;
@@ -802,14 +812,21 @@ export class Engine {
       const int = this.intersections.get(nextId);
       if (!int || !int.isSignalized) continue;
       
+      const edgeLen = v.currentEdge?.length || 100;
+      const distToIntersection = (1 - v.segmentProgress) * edgeLen;
+      const maxQueueReach = Math.min(280 * CANVAS_SCALE, edgeLen * 0.95);
+      const isQueued = (distToIntersection < maxQueueReach && v.speed < 3.5 * CANVAS_SCALE);
+
+      if (v.currentEdge && int.edgeToApproach) {
+        const app = int.edgeToApproach.get(v.currentEdge.id);
+        if (app && isQueued) {
+          app.queue++;
+        }
+      }
+
       const dir = v._getDirection();
       if (dir) {
-        // High-fidelity full-corridor queue detection:
-        // Captures stopped/queuing vehicles along the approach edge (up to 280px reach)
-        const edgeLen = v.currentEdge?.length || 100;
-        const distToIntersection = (1 - v.segmentProgress) * edgeLen;
-        const maxQueueReach = Math.min(280 * CANVAS_SCALE, edgeLen * 0.95);
-        if (distToIntersection < maxQueueReach && v.speed < 3.5 * CANVAS_SCALE) {
+        if (isQueued) {
           int.queues[dir]++;
         }
         // Localized wait time for THIS intersection approach
@@ -819,6 +836,13 @@ export class Engine {
         if (v.sirenActive) {
           int.emergencyApproaching = true;
           int.emergencyDir = dir;
+          if (v.currentEdge && int.edgeToApproach) {
+            const app = int.edgeToApproach.get(v.currentEdge.id);
+            if (app && int.trafficLight) {
+              int.trafficLight.emergencyOverridePhase = app.phaseIndex;
+              int.trafficLight.emergencyTimer = 12;
+            }
+          }
         }
       }
     }

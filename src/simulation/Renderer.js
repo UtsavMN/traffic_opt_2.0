@@ -595,7 +595,7 @@ export class Renderer {
           const perpX = -dirY, perpY = dirX; // Perpendicular pointing to the RIGHT of travel
 
           const approachDir = edge.cardinalDir || (Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'E' : 'W') : (dy > 0 ? 'S' : 'N'));
-          const appColor = (approachDir === 'N' || approachDir === 'S') ? tl.getColorNS() : tl.getColorEW();
+          const appColor = int.getLightColorForEdge ? int.getLightColorForEdge(edge.id) : ((approachDir === 'N' || approachDir === 'S') ? tl.getColorNS() : tl.getColorEW());
 
           // Stop line setback distance: realistic 3-4 meters before junction mouth (NOT 14 meters!)
           const stopLineDist = Math.max(3.2, (int.maxLanes || 2) * (edge.laneWidthM || 2.85) * scale * 0.38);

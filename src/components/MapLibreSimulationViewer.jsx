@@ -220,20 +220,45 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
               }
             }
           } else if (zoom < 16.8) {
-            // Medium Zoom (15.2 <= zoom < 16.8): Sleek micro-signal LED dots for visible junctions only
+            // Medium Zoom (15.2 <= zoom < 16.8): Sleek road-aligned micro-signals for visible junctions
             for (const [, int] of activeEngine.intersections) {
               if (!int.isSignalized || !int.lng || !int.lat) continue;
               if (int.lng < minLng || int.lng > maxLng || int.lat < minLat || int.lat > maxLat) continue;
 
               const p = map.project([int.lng, int.lat]);
               const isSelected = selectedIntersection === int.id;
-              const colorNS = int.getColorNS();
-              const hex = colorNS === 'GREEN' ? '#00E87A' : (colorNS === 'YELLOW' ? '#FFB400' : '#FF3B5C');
+              const baseRadius = isSelected ? 6.0 : 3.8;
 
-              ctx.fillStyle = hex;
+              // Dark junction core
+              ctx.fillStyle = 'rgba(12, 18, 28, 0.90)';
               ctx.beginPath();
-              ctx.arc(p.x, p.y, isSelected ? 5.5 : 2.5, 0, Math.PI * 2);
+              ctx.arc(p.x, p.y, baseRadius, 0, Math.PI * 2);
               ctx.fill();
+
+              if (int.approaches && int.approaches.length > 0) {
+                for (const app of int.approaches) {
+                  const pPrev = map.project([app.prevLng, app.prevLat]);
+                  const dx = pPrev.x - p.x;
+                  const dy = pPrev.y - p.y;
+                  const roadAngle = Math.atan2(dy, dx);
+                  const color = int.trafficLight ? int.trafficLight.getColorForPhase(app.phaseIndex) : 'GREEN';
+                  const hex = color === 'GREEN' ? '#00E87A' : (color === 'YELLOW' ? '#FFB400' : '#FF3B5C');
+
+                  const bx = p.x + Math.cos(roadAngle) * (baseRadius + 1.2);
+                  const by = p.y + Math.sin(roadAngle) * (baseRadius + 1.2);
+                  ctx.fillStyle = hex;
+                  ctx.beginPath();
+                  ctx.arc(bx, by, isSelected ? 2.5 : 1.8, 0, Math.PI * 2);
+                  ctx.fill();
+                }
+              } else {
+                const colorNS = int.getColorNS();
+                const hex = colorNS === 'GREEN' ? '#00E87A' : (colorNS === 'YELLOW' ? '#FFB400' : '#FF3B5C');
+                ctx.fillStyle = hex;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, isSelected ? 5.5 : 2.5, 0, Math.PI * 2);
+                ctx.fill();
+              }
 
               if (isSelected) {
                 ctx.strokeStyle = '#3D9EFF';
@@ -242,7 +267,7 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
               }
             }
           } else {
-            // Street Level Simulation Zoom (zoom >= 16.8): Full signal heads, dual aspects & AI wave
+            // Street Level Simulation Zoom (zoom >= 16.8): Road-aligned directional arcs, beacons & stop lines
             for (const [, int] of activeEngine.intersections) {
               if (!int.isSignalized || !int.lng || !int.lat) continue;
               // Viewport Culling: Skip if outside visible screen bounds
@@ -252,40 +277,83 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
               if (p.x < -60 || p.x > width + 60 || p.y < -60 || p.y > height + 60) continue;
 
               const isSelected = selectedIntersection === int.id;
-              const colorNS = int.getColorNS();
-              const colorEW = int.getColorEW();
-
-              const hexNS = colorNS === 'GREEN' ? '#00E87A' : (colorNS === 'YELLOW' ? '#FFB400' : '#FF3B5C');
-              const hexEW = colorEW === 'GREEN' ? '#00E87A' : (colorEW === 'YELLOW' ? '#FFB400' : '#FF3B5C');
-
-              const baseRadius = Math.max(7, Math.min(18, 11 / mPerPx));
+              const baseRadius = Math.max(8, Math.min(18, 11 / mPerPx));
 
               // Semi-transparent junction disc
-              ctx.fillStyle = 'rgba(10, 16, 24, 0.80)';
+              ctx.fillStyle = 'rgba(10, 16, 24, 0.88)';
               ctx.beginPath();
               ctx.arc(p.x, p.y, baseRadius, 0, Math.PI * 2);
               ctx.fill();
 
-              // Dual Aspect indicator (NS on top/bottom, EW on left/right)
-              ctx.lineWidth = Math.max(2, baseRadius * 0.28);
-              
-              // NS ring segment
-              ctx.strokeStyle = hexNS;
-              ctx.beginPath();
-              ctx.arc(p.x, p.y, baseRadius - 2, -Math.PI * 0.75, -Math.PI * 0.25);
-              ctx.stroke();
-              ctx.beginPath();
-              ctx.arc(p.x, p.y, baseRadius - 2, Math.PI * 0.25, Math.PI * 0.75);
-              ctx.stroke();
+              if (int.approaches && int.approaches.length > 0) {
+                const numApps = int.approaches.length;
+                // Responsive arc span: crisp separation between arms (especially on 5-way/6-way circles)
+                const arcHalfSpan = Math.min(0.48, (Math.PI / Math.max(2, numApps)) * 0.52);
 
-              // EW ring segment
-              ctx.strokeStyle = hexEW;
-              ctx.beginPath();
-              ctx.arc(p.x, p.y, baseRadius - 2, -Math.PI * 0.25, Math.PI * 0.25);
-              ctx.stroke();
-              ctx.beginPath();
-              ctx.arc(p.x, p.y, baseRadius - 2, Math.PI * 0.75, Math.PI * 1.25);
-              ctx.stroke();
+                for (const app of int.approaches) {
+                  const pPrev = map.project([app.prevLng, app.prevLat]);
+                  const dx = pPrev.x - p.x;
+                  const dy = pPrev.y - p.y;
+                  const roadAngle = Math.atan2(dy, dx); // Points directly along incoming road
+
+                  const color = int.trafficLight ? int.trafficLight.getColorForPhase(app.phaseIndex) : 'GREEN';
+                  const hex = color === 'GREEN' ? '#00E87A' : (color === 'YELLOW' ? '#FFB400' : '#FF3B5C');
+
+                  // 1. Road-aligned circular ring segment directly facing this incoming road
+                  ctx.lineWidth = Math.max(2.6, baseRadius * 0.30);
+                  ctx.strokeStyle = hex;
+                  ctx.beginPath();
+                  ctx.arc(p.x, p.y, baseRadius - 2, roadAngle - arcHalfSpan, roadAngle + arcHalfSpan);
+                  ctx.stroke();
+
+                  // 2. High-intensity LED signal beacon on the rim facing the approaching road
+                  const beaconDist = baseRadius + 2.0;
+                  const bx = p.x + Math.cos(roadAngle) * beaconDist;
+                  const by = p.y + Math.sin(roadAngle) * beaconDist;
+                  ctx.fillStyle = hex;
+                  ctx.beginPath();
+                  ctx.arc(bx, by, Math.max(2.2, baseRadius * 0.22), 0, Math.PI * 2);
+                  ctx.fill();
+
+                  // 3. Illuminated Stop Line Bar across the approaching road lanes
+                  const stopDist = baseRadius + Math.max(7, 7.0 / mPerPx);
+                  const stopX = p.x + Math.cos(roadAngle) * stopDist;
+                  const stopY = p.y + Math.sin(roadAngle) * stopDist;
+                  const perpX = -Math.sin(roadAngle);
+                  const perpY = Math.cos(roadAngle);
+                  const roadHalfWidth = Math.max(4.5, (app.lanes || 2) * 3.0 / mPerPx);
+
+                  ctx.strokeStyle = hex;
+                  ctx.lineWidth = Math.max(2.2, 1.8 / mPerPx);
+                  ctx.beginPath();
+                  ctx.moveTo(stopX - perpX * roadHalfWidth, stopY - perpY * roadHalfWidth);
+                  ctx.lineTo(stopX + perpX * roadHalfWidth, stopY + perpY * roadHalfWidth);
+                  ctx.stroke();
+                }
+              } else {
+                // Fallback dual-aspect for non-approached junctions
+                const colorNS = int.getColorNS();
+                const colorEW = int.getColorEW();
+                const hexNS = colorNS === 'GREEN' ? '#00E87A' : (colorNS === 'YELLOW' ? '#FFB400' : '#FF3B5C');
+                const hexEW = colorEW === 'GREEN' ? '#00E87A' : (colorEW === 'YELLOW' ? '#FFB400' : '#FF3B5C');
+
+                ctx.lineWidth = Math.max(2, baseRadius * 0.28);
+                ctx.strokeStyle = hexNS;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, baseRadius - 2, -Math.PI * 0.75, -Math.PI * 0.25);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, baseRadius - 2, Math.PI * 0.25, Math.PI * 0.75);
+                ctx.stroke();
+
+                ctx.strokeStyle = hexEW;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, baseRadius - 2, -Math.PI * 0.25, Math.PI * 0.25);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, baseRadius - 2, Math.PI * 0.75, Math.PI * 1.25);
+                ctx.stroke();
+              }
 
               // AI Decision pulse indicator
               if (int.aiPulseActive || (int.trafficLight && int.trafficLight.isAdaptive)) {

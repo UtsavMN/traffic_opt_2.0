@@ -101,7 +101,8 @@ export class Cyclist {
     const intObj = intersections.get(this.route[this.routeIndex + 1]);
     if (intObj && intObj.isSignalized && intObj.trafficLight) {
       const dir = this._getDirection();
-      if (dir && !intObj.trafficLight.canPass(dir)) {
+      const canPass = intObj.canEdgePass ? intObj.canEdgePass(edge.id) : (dir && intObj.trafficLight.canPass(dir));
+      if (!canPass) {
         stopDist = Math.max(12, (intObj.maxLanes || 2) * 2.85 * (typeof CANVAS_SCALE !== 'undefined' ? CANVAS_SCALE : 1) * 0.65);
         const rem = (1 - this.segmentProgress) * edge.length - stopDist;
         if (rem < 35) {

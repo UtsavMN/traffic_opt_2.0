@@ -185,123 +185,208 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
         const mapPitch = map.getPitch() * Math.PI / 180;
         const mPerPx = getMetersPerPixel(13.0038, zoom);
 
-        // 1. Draw Road Stop Beacons and Signals at Intersections
+        // Viewport geographic frustum bounds with safety padding (5% padding prevents pop-in)
+        const mapBounds = map.getBounds();
+        const lngSpan = mapBounds.getEast() - mapBounds.getWest();
+        const latSpan = mapBounds.getNorth() - mapBounds.getSouth();
+        const minLng = mapBounds.getWest() - lngSpan * 0.06;
+        const maxLng = mapBounds.getEast() + lngSpan * 0.06;
+        const minLat = mapBounds.getSouth() - latSpan * 0.06;
+        const maxLat = mapBounds.getNorth() + latSpan * 0.06;
+
+        // -------------------------------------------------------------
+        // 1. Level of Detail (LOD) for Intersections & Traffic Signals
+        // -------------------------------------------------------------
         if (activeEngine.intersections) {
-          for (const [, int] of activeEngine.intersections) {
-            if (!int.isSignalized || !int.lng || !int.lat) continue;
-            const p = map.project([int.lng, int.lat]);
-            if (p.x < -60 || p.x > width + 60 || p.y < -60 || p.y > height + 60) continue;
-
-            const isSelected = selectedIntersection === int.id;
-            const colorNS = int.getColorNS();
-            const colorEW = int.getColorEW();
-
-            const hexNS = colorNS === 'GREEN' ? '#00E87A' : (colorNS === 'YELLOW' ? '#FFB400' : '#FF3B5C');
-            const hexEW = colorEW === 'GREEN' ? '#00E87A' : (colorEW === 'YELLOW' ? '#FFB400' : '#FF3B5C');
-
-            // Draw Signal Beacon Rings
-            const baseRadius = Math.max(6, Math.min(18, 12 / mPerPx));
-            
-            // Glow effect
-            ctx.shadowBlur = 8;
-            ctx.shadowColor = hexNS;
-
-            // Semi-transparent junction disc
-            ctx.fillStyle = 'rgba(10, 16, 24, 0.75)';
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, baseRadius, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Dual Aspect indicator (NS on top/bottom, EW on left/right)
-            ctx.lineWidth = Math.max(2, baseRadius * 0.3);
-            
-            // NS ring segment
-            ctx.strokeStyle = hexNS;
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, baseRadius - 2, -Math.PI * 0.75, -Math.PI * 0.25);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, baseRadius - 2, Math.PI * 0.25, Math.PI * 0.75);
-            ctx.stroke();
-
-            // EW ring segment
-            ctx.strokeStyle = hexEW;
-            ctx.shadowColor = hexEW;
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, baseRadius - 2, -Math.PI * 0.25, Math.PI * 0.25);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, baseRadius - 2, Math.PI * 0.75, Math.PI * 1.25);
-            ctx.stroke();
-
-            ctx.shadowBlur = 0;
-
-            // AI Decision pulse indicator
-            if (int.aiPulseActive || (int.trafficLight && int.trafficLight.isAdaptive)) {
-              const now = performance.now() / 1000;
-              const pulseR = baseRadius + (Math.sin(now * 4) + 1) * 4;
-              ctx.strokeStyle = 'rgba(0, 232, 122, 0.4)';
-              ctx.lineWidth = 1.5;
-              ctx.beginPath();
-              ctx.arc(p.x, p.y, pulseR, 0, Math.PI * 2);
-              ctx.stroke();
+          // Macro Zoom (zoom < 15.2): Clean view — do NOT clutter the city with 304 overlapping rings!
+          if (zoom < 15.2) {
+            // Only draw the user's selected intersection if active
+            if (selectedIntersection) {
+              const selInt = activeEngine.intersections.get(selectedIntersection);
+              if (selInt && selInt.lng && selInt.lat) {
+                const p = map.project([selInt.lng, selInt.lat]);
+                ctx.strokeStyle = '#3D9EFF';
+                ctx.lineWidth = 2.5;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+                ctx.stroke();
+              }
             }
+          } else if (zoom < 16.8) {
+            // Medium Zoom (15.2 <= zoom < 16.8): Sleek micro-signal LED dots for visible junctions only
+            for (const [, int] of activeEngine.intersections) {
+              if (!int.isSignalized || !int.lng || !int.lat) continue;
+              if (int.lng < minLng || int.lng > maxLng || int.lat < minLat || int.lat > maxLat) continue;
 
-            // Highlighting if selected
-            if (isSelected) {
-              ctx.strokeStyle = '#3D9EFF';
-              ctx.lineWidth = 2.5;
+              const p = map.project([int.lng, int.lat]);
+              const isSelected = selectedIntersection === int.id;
+              const colorNS = int.getColorNS();
+              const hex = colorNS === 'GREEN' ? '#00E87A' : (colorNS === 'YELLOW' ? '#FFB400' : '#FF3B5C');
+
+              ctx.fillStyle = hex;
               ctx.beginPath();
-              ctx.arc(p.x, p.y, baseRadius + 7, 0, Math.PI * 2);
+              ctx.arc(p.x, p.y, isSelected ? 5.5 : 2.5, 0, Math.PI * 2);
+              ctx.fill();
+
+              if (isSelected) {
+                ctx.strokeStyle = '#3D9EFF';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+              }
+            }
+          } else {
+            // Street Level Simulation Zoom (zoom >= 16.8): Full signal heads, dual aspects & AI wave
+            for (const [, int] of activeEngine.intersections) {
+              if (!int.isSignalized || !int.lng || !int.lat) continue;
+              // Viewport Culling: Skip if outside visible screen bounds
+              if (int.lng < minLng || int.lng > maxLng || int.lat < minLat || int.lat > maxLat) continue;
+
+              const p = map.project([int.lng, int.lat]);
+              if (p.x < -60 || p.x > width + 60 || p.y < -60 || p.y > height + 60) continue;
+
+              const isSelected = selectedIntersection === int.id;
+              const colorNS = int.getColorNS();
+              const colorEW = int.getColorEW();
+
+              const hexNS = colorNS === 'GREEN' ? '#00E87A' : (colorNS === 'YELLOW' ? '#FFB400' : '#FF3B5C');
+              const hexEW = colorEW === 'GREEN' ? '#00E87A' : (colorEW === 'YELLOW' ? '#FFB400' : '#FF3B5C');
+
+              const baseRadius = Math.max(7, Math.min(18, 11 / mPerPx));
+
+              // Semi-transparent junction disc
+              ctx.fillStyle = 'rgba(10, 16, 24, 0.80)';
+              ctx.beginPath();
+              ctx.arc(p.x, p.y, baseRadius, 0, Math.PI * 2);
+              ctx.fill();
+
+              // Dual Aspect indicator (NS on top/bottom, EW on left/right)
+              ctx.lineWidth = Math.max(2, baseRadius * 0.28);
+              
+              // NS ring segment
+              ctx.strokeStyle = hexNS;
+              ctx.beginPath();
+              ctx.arc(p.x, p.y, baseRadius - 2, -Math.PI * 0.75, -Math.PI * 0.25);
+              ctx.stroke();
+              ctx.beginPath();
+              ctx.arc(p.x, p.y, baseRadius - 2, Math.PI * 0.25, Math.PI * 0.75);
               ctx.stroke();
 
-              // Label
-              ctx.font = 'bold 10px monospace';
-              ctx.fillStyle = '#3D9EFF';
-              ctx.textAlign = 'center';
-              ctx.fillText(`#${int.id}`, p.x, p.y - baseRadius - 9);
+              // EW ring segment
+              ctx.strokeStyle = hexEW;
+              ctx.beginPath();
+              ctx.arc(p.x, p.y, baseRadius - 2, -Math.PI * 0.25, Math.PI * 0.25);
+              ctx.stroke();
+              ctx.beginPath();
+              ctx.arc(p.x, p.y, baseRadius - 2, Math.PI * 0.75, Math.PI * 1.25);
+              ctx.stroke();
+
+              // AI Decision pulse indicator
+              if (int.aiPulseActive || (int.trafficLight && int.trafficLight.isAdaptive)) {
+                const now = performance.now() / 1000;
+                const pulseR = baseRadius + (Math.sin(now * 4) + 1) * 4;
+                ctx.strokeStyle = 'rgba(0, 232, 122, 0.45)';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, pulseR, 0, Math.PI * 2);
+                ctx.stroke();
+              }
+
+              // Highlighting if selected
+              if (isSelected) {
+                ctx.strokeStyle = '#3D9EFF';
+                ctx.lineWidth = 2.5;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, baseRadius + 7, 0, Math.PI * 2);
+                ctx.stroke();
+
+                ctx.font = 'bold 10px monospace';
+                ctx.fillStyle = '#3D9EFF';
+                ctx.textAlign = 'center';
+                ctx.fillText(`#${int.id}`, p.x, p.y - baseRadius - 9);
+              }
             }
           }
         }
 
-        // 2. Draw Realistic Commuter Vehicles
+        // -------------------------------------------------------------
+        // 2. Level of Detail (LOD) & Viewport Culling for Vehicles
+        // -------------------------------------------------------------
         if (activeEngine.vehicles) {
           const now = performance.now();
           const isNight = activeEngine.timeOfDay ? activeEngine.timeOfDay.isNight : false;
 
-          for (const v of activeEngine.vehicles) {
-            if (!v.alive || !v.lng || !v.lat) continue;
-            const p = map.project([v.lng, v.lat]);
-            if (p.x < -30 || p.x > width + 30 || p.y < -30 || p.y > height + 30) continue;
-
-            // Calibrate visual proportions against OpenStreetMap road line styling
-            const cartoMultiplier = zoom >= 17.5 ? 1.75 : (zoom >= 16 ? 1.4 : 1.15);
-            const lenPx = Math.max(5.5, ((v.lengthM || 4.2) * cartoMultiplier) / mPerPx);
-            const widPx = Math.max(3.2, ((v.widthM || 1.8) * cartoMultiplier) / mPerPx);
-
-            // Vehicle screen bearing
-            const screenBearing = v.bearingDeg - mapBearing;
-            const rotRad = (screenBearing * Math.PI) / 180;
-
-            ctx.save();
-            ctx.translate(p.x, p.y);
-            // Perspective pitch compression along Y axis
-            if (mapPitch > 0) {
-              ctx.scale(1, Math.cos(mapPitch * 0.55));
+          // Macro Zoom (zoom < 15.2): Super-fast batched micro-commuter flow
+          if (zoom < 15.2) {
+            ctx.fillStyle = isNight ? '#FFE082' : '#3D9EFF';
+            for (const v of activeEngine.vehicles) {
+              if (!v.alive || !v.lng || !v.lat) continue;
+              // Viewport Culling: Skip immediately if outside current camera frame
+              if (v.lng < minLng || v.lng > maxLng || v.lat < minLat || v.lat > maxLat) continue;
+              const p = map.project([v.lng, v.lat]);
+              ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
             }
-            ctx.rotate(rotRad);
+          } else if (zoom < 16.8) {
+            // Medium Zoom (15.2 <= zoom < 16.8): Streamlined commuter capsules
+            for (const v of activeEngine.vehicles) {
+              if (!v.alive || !v.lng || !v.lat) continue;
+              // Viewport Culling
+              if (v.lng < minLng || v.lng > maxLng || v.lat < minLat || v.lat > maxLat) continue;
 
-            // Draw Vehicle Body
-            ctx.fillStyle = v.color || '#3D9EFF';
-            const radius = Math.min(widPx * 0.35, 3.5);
-            
-            ctx.beginPath();
-            ctx.roundRect(-widPx / 2, -lenPx / 2, widPx, lenPx, radius);
-            ctx.fill();
+              const p = map.project([v.lng, v.lat]);
+              if (p.x < -20 || p.x > width + 20 || p.y < -20 || p.y > height + 20) continue;
 
-            // Indian vehicle details based on type & zoom
-            if (zoom >= 16.5) {
-              // Roof / Windshield
+              const screenBearing = v.bearingDeg - mapBearing;
+              const rotRad = (screenBearing * Math.PI) / 180;
+              const lenPx = v.type === 'bus' ? 10 : (v.type === 'motorcycle' ? 4 : 6.5);
+              const widPx = v.type === 'motorcycle' ? 2 : 3.2;
+
+              ctx.save();
+              ctx.translate(p.x, p.y);
+              ctx.rotate(rotRad);
+              ctx.fillStyle = v.color || '#3D9EFF';
+              ctx.beginPath();
+              ctx.roundRect(-widPx / 2, -lenPx / 2, widPx, lenPx, 1.5);
+              ctx.fill();
+              ctx.restore();
+            }
+          } else {
+            // Street Level Simulation Zoom (zoom >= 16.8):
+            // FULL REAL-WORLD SIMULATION: Perfectly proportioned vehicles matching OSM lanes
+            const cartoMultiplier = zoom >= 18.0 ? 1.55 : 1.40;
+
+            for (const v of activeEngine.vehicles) {
+              if (!v.alive || !v.lng || !v.lat) continue;
+              // Viewport Culling: 100% of off-screen vehicles skip projection & draw calls
+              if (v.lng < minLng || v.lng > maxLng || v.lat < minLat || v.lat > maxLat) continue;
+
+              const p = map.project([v.lng, v.lat]);
+              if (p.x < -40 || p.x > width + 40 || p.y < -40 || p.y > height + 40) continue;
+
+              // Exact physical vehicle dimensions mapped to screen pixels
+              const lenPx = Math.max(6.5, ((v.lengthM || 4.2) * cartoMultiplier) / mPerPx);
+              const widPx = Math.max(3.2, ((v.widthM || 1.8) * cartoMultiplier) / mPerPx);
+
+              // Vehicle screen bearing
+              const screenBearing = v.bearingDeg - mapBearing;
+              const rotRad = (screenBearing * Math.PI) / 180;
+
+              ctx.save();
+              ctx.translate(p.x, p.y);
+              // Perspective pitch compression along Y axis
+              if (mapPitch > 0) {
+                ctx.scale(1, Math.cos(mapPitch * 0.55));
+              }
+              ctx.rotate(rotRad);
+
+              // Draw Vehicle Body
+              ctx.fillStyle = v.color || '#3D9EFF';
+              const radius = Math.min(widPx * 0.35, 3.5);
+              
+              ctx.beginPath();
+              ctx.roundRect(-widPx / 2, -lenPx / 2, widPx, lenPx, radius);
+              ctx.fill();
+
+              // Indian vehicle details based on vehicle class
               if (v.type === 'rickshaw') {
                 // Auto-rickshaw signature black canvas top & yellow hood
                 ctx.fillStyle = '#181818';
@@ -352,9 +437,9 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
                 ctx.fillRect(-widPx * 0.35, -1.2, widPx * 0.7, 2.5);
                 ctx.shadowBlur = 0;
               }
-            }
 
-            ctx.restore();
+              ctx.restore();
+            }
           }
         }
 

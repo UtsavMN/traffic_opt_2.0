@@ -21,8 +21,8 @@ export class Engine {
     this.canvas = canvas;
     this.renderer = new Renderer(canvas);
     this.spatialGrid = new SpatialGrid(50);
-    this.vehiclePool = new VehiclePool(2000);
-    this.maxVehicles = 1200;
+    this.vehiclePool = new VehiclePool(3500);
+    this.maxVehicles = 2400;
 
     // City graph (set by loadCity)
     this.graph = null;
@@ -51,7 +51,7 @@ export class Engine {
     this.paused = false;
     this.viewMode = 'real_map';
     this.simSpeed = 1;
-    this.spawnRate = 3.5; // vehicles/sec base (calibrated for 1200+ citywide commuter density)
+    this.spawnRate = 14.0; // vehicles/sec base (calibrated for 1800+ citywide commuter density)
     this.spawnTimer = 0;
     this.pedSpawnTimer = 0;
     this.cyclistSpawnTimer = 0;
@@ -577,22 +577,22 @@ export class Engine {
 
   async _spawnTick(dt) {
     this._spawnTimer = (this._spawnTimer || 0) + dt;
-    const baseRate = this.spawnRate || 3.5;
+    const baseRate = this.spawnRate || 14.0;
     const currentCount = this.vehicles.length;
-    const maxCapacity = this.maxVehicles || 1200;
+    const maxCapacity = this.maxVehicles || 2400;
     
     if (currentCount >= maxCapacity) return;
 
     // Scale spawn rate dynamically based on current population filling
     const fillRatio = currentCount / maxCapacity;
-    const fillBoost = fillRatio < 0.40 ? 4.0 : (fillRatio < 0.75 ? 2.5 : (fillRatio < 0.95 ? 1.5 : 1.0));
+    const fillBoost = fillRatio < 0.35 ? 4.5 : (fillRatio < 0.65 ? 2.8 : (fillRatio < 0.90 ? 1.6 : 1.0));
     const effectiveRate = baseRate * this.timeOfDay.spawnMultiplier * fillBoost;
     
     if (this._spawnTimer < 1.0 / effectiveRate) return;
     this._spawnTimer = 0;
 
-    // Batch spawn 1 to 3 vehicles depending on current citywide density
-    const batchSize = currentCount < 400 ? 3 : (currentCount < 900 ? 2 : 1);
+    // Batch spawn 1 to 5 vehicles depending on current citywide density
+    const batchSize = currentCount < 600 ? 5 : (currentCount < 1200 ? 3 : (currentCount < 1800 ? 2 : 1));
     for (let b = 0; b < batchSize; b++) {
       if (this.vehicles.length >= maxCapacity) break;
       await this._spawnOneVehicle();

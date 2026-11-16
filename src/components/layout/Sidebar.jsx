@@ -36,7 +36,7 @@ export default function Sidebar({
   const timeLocked = useSimStore(s => s.timeLocked);
   const overlays = useUIStore(s => s.overlays);
 
-  const [spawnVal, setSpawnVal] = useState(3.5);
+  const [spawnVal, setSpawnVal] = useState(14.0);
   const [selectedScenario, setSelectedScenario] = useState('bengaluru_central');
   const [activeView, setActiveView] = useState('metrics'); // 'metrics' | 'bangalore'
 
@@ -212,7 +212,7 @@ export default function Sidebar({
           <span className="control-row__value">{spawnVal.toFixed(1)}/s</span>
         </div>
         <input
-          type="range" className="range-slider" min="0.5" max="10.0" step="0.5"
+          type="range" className="range-slider" min="1.0" max="30.0" step="1.0"
           value={spawnVal}
           onChange={(e) => {
             const v = parseFloat(e.target.value);

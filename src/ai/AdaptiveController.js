@@ -59,12 +59,15 @@ export class AdaptiveController {
     const currentMode = useAIStore.getState().mode;
     this.mode = currentMode;
 
+    if (currentMode === 'TRADITIONAL_FIXED_120S' || engine.benchmarkMode === 'FIXED_120S') {
+      return; // Rigid pre-timed mode: signals cycle on 120s clocks without AI intervention
+    }
+
     for (const [id, int] of engine.intersections) {
       if (!int.isSignalized || !int.trafficLight) continue;
       if (int.aiCooldown > 0) continue;
 
       // Ensure physical traffic light has balanced realistic cycle limits (15s to 25s).
-      // Never lock traffic lights to 9999s! Traffic lights MUST always cycle even in jams!
       if (int.trafficLight.greenDuration > 25 || int.trafficLight.greenDuration < 10) {
         int.trafficLight.setGreenDuration(18);
       }

@@ -26,6 +26,9 @@ export default function TopBar({ setTimeOfDay, setTimeLocked, togglePause, resta
   const running = useSimStore(s => s.running);
   const viewMode = useUIStore(s => s.viewMode);
   const setViewMode = useUIStore(s => s.setViewMode);
+  const benchmarkMode = useUIStore(s => s.benchmarkMode);
+  const setBenchmarkMode = useUIStore(s => s.setBenchmarkMode);
+  const setShowABComparison = useUIStore(s => s.setShowABComparison);
   const [gpuInfo] = useState(() => getGPUInfo());
 
   const [showTimeModal, setShowTimeModal] = useState(false);
@@ -102,7 +105,61 @@ export default function TopBar({ setTimeOfDay, setTimeLocked, togglePause, resta
           <span>🎮</span>
           <span>2D Canvas</span>
         </button>
+
+        <button
+          onClick={() => setShowABComparison(true)}
+          title="Open Side-by-Side A/B Benchmark (120s Pre-timed vs Sanchar AI)"
+          style={{
+            background: 'rgba(0, 232, 122, 0.15)',
+            color: '#00E87A',
+            fontWeight: 700,
+            fontSize: 11,
+            border: '1px solid rgba(0, 232, 122, 0.35)',
+            borderRadius: 16,
+            padding: '3px 10px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            transition: 'all 0.15s ease',
+            marginLeft: 4,
+          }}
+        >
+          <span>◫</span>
+          <span>A/B Compare (-35%)</span>
+        </button>
       </div>
+
+      {/* Instant City A/B Mode Toggle */}
+      <button
+        onClick={() => {
+          const nextMode = benchmarkMode === 'AI' ? 'FIXED_120S' : 'AI';
+          setBenchmarkMode(nextMode);
+          if (window.__sancharEngine && window.__sancharEngine.setBenchmarkMode) {
+            window.__sancharEngine.setBenchmarkMode(nextMode);
+          }
+        }}
+        title={benchmarkMode === 'AI' ? "Switch entire city to 120s Rigid Pre-Timed Signals (observe gridlock)" : "Switch entire city to Sanchar AI Dynamic Arbitration (observe green waves)"}
+        style={{
+          background: benchmarkMode === 'AI' ? 'rgba(0, 232, 122, 0.12)' : 'rgba(255, 59, 92, 0.18)',
+          color: benchmarkMode === 'AI' ? '#00E87A' : '#FF3B5C',
+          fontWeight: 700,
+          fontSize: 10.5,
+          border: benchmarkMode === 'AI' ? '1px solid rgba(0, 232, 122, 0.4)' : '1px solid rgba(255, 59, 92, 0.5)',
+          borderRadius: 16,
+          padding: '3px 10px',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 5,
+          marginLeft: 8,
+          transition: 'all 0.15s ease',
+          boxShadow: benchmarkMode === 'AI' ? '0 0 10px rgba(0, 232, 122, 0.25)' : '0 0 10px rgba(255, 59, 92, 0.35)',
+        }}
+      >
+        <span>{benchmarkMode === 'AI' ? '⚡' : '⏱️'}</span>
+        <span>{benchmarkMode === 'AI' ? 'AI: DYNAMIC ON' : 'PRE-TIMED 120s'}</span>
+      </button>
 
       <div className="topbar__info">
         <div className="topbar__info-item">

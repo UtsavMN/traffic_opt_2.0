@@ -1,6 +1,7 @@
 import React from 'react';
 import { useSimStore } from '../../store/simStore.js';
 import { useMetricsStore } from '../../store/metricsStore.js';
+import { useUIStore } from '../../store/uiStore.js';
 
 function getKPIColor(value, thresholds, dir) {
   if (dir === 'lower') return value < thresholds[0] ? '#00E87A' : value < thresholds[2] ? '#FFB400' : '#FF3B5C';
@@ -82,6 +83,29 @@ export default function MetricsDashboard() {
             <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>
               Dynamic coordination vs. traditional fixed-time cycles (120s–150s).
             </div>
+            <button
+              onClick={() => useUIStore.getState().setShowABComparison(true)}
+              style={{
+                marginTop: 8,
+                width: '100%',
+                padding: '5px 8px',
+                background: 'rgba(0, 232, 122, 0.12)',
+                border: '1px solid rgba(0, 232, 122, 0.3)',
+                borderRadius: 4,
+                color: '#00E87A',
+                fontSize: 9.5,
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 5,
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <span>◫</span>
+              <span>Open Side-by-Side A/B Benchmark</span>
+            </button>
           </div>
 
           {/* Section 0.7: Economic Loss & Savings Odometer */}

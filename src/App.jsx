@@ -7,6 +7,8 @@ import StatusBar from './components/layout/StatusBar.jsx';
 import AIBrainPanel from './components/panels/AIBrainPanel.jsx';
 import LoadingScreen from './components/LoadingScreen.jsx';
 import MapLibreSimulationViewer from './components/MapLibreSimulationViewer.jsx';
+import JunctionInspector from './components/panels/JunctionInspector.jsx';
+import ABComparisonView from './components/panels/ABComparisonView.jsx';
 
 export default function App() {
   const sim = useSimulation();
@@ -53,6 +55,8 @@ export default function App() {
         )}
       </div>
       <AIBrainPanel getIntersectionData={sim.getIntersectionData} />
+      <JunctionInspector />
+      <ABComparisonView />
       <StatusBar />
     </div>
   );

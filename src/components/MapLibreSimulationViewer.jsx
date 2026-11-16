@@ -94,6 +94,8 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
   const selectedIntersection = useUIStore(s => s.selectedIntersection);
   const mapStyle = useUIStore(s => s.mapStyle);
   const setMapStyle = useUIStore(s => s.setMapStyle);
+  const showAmbulancePath = useUIStore(s => s.showAmbulancePath);
+  const toggleAmbulancePath = useUIStore(s => s.toggleAmbulancePath);
 
   const [is3D, setIs3D] = useState(false);
   const [gpuInfo, setGpuInfo] = useState(() => getGPUInfo());
@@ -386,7 +388,7 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
         // -------------------------------------------------------------
         // 1.5 Ambulance Emergency Priority Corridor & Route Visualization
         // -------------------------------------------------------------
-        if (activeEngine.vehicles && activeEngine.graph) {
+        if (showAmbulancePath && activeEngine.vehicles && activeEngine.graph) {
           const now = performance.now();
           const dashPhase = (now / 22) % 24;
           const strobe = Math.floor(now / 150) % 2 === 0;
@@ -908,31 +910,32 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
           <div style={{ width: 1, height: 14, background: 'rgba(255, 255, 255, 0.15)', margin: '0 2px' }} />
 
           <button
-            onClick={trackAmbulance}
+            onClick={() => {
+              toggleAmbulancePath();
+              // If turning path on, smoothly focus and track the active ambulance
+              if (!showAmbulancePath) {
+                trackAmbulance();
+              }
+            }}
             style={{
               fontSize: 10,
               fontWeight: 700,
-              padding: '2px 8px',
+              padding: '2px 9px',
               borderRadius: 4,
-              border: '1px solid rgba(255, 59, 92, 0.45)',
-              background: 'rgba(255, 59, 92, 0.15)',
-              color: '#FF3B5C',
+              border: showAmbulancePath ? '1px solid #FF3B5C' : '1px solid rgba(255, 255, 255, 0.2)',
+              background: showAmbulancePath ? 'rgba(255, 59, 92, 0.22)' : 'rgba(255, 255, 255, 0.05)',
+              color: showAmbulancePath ? '#FF3B5C' : '#94A3B8',
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
-              gap: 4,
+              gap: 5,
               transition: 'all 0.15s ease',
+              boxShadow: showAmbulancePath ? '0 0 10px rgba(255, 59, 92, 0.35)' : 'none',
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(255, 59, 92, 0.3)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'rgba(255, 59, 92, 0.15)';
-            }}
-            title="Focus camera on active emergency ambulance & siren corridor"
+            title={showAmbulancePath ? "Click to turn OFF ambulance emergency route path" : "Click to turn ON ambulance emergency route path & focus camera"}
           >
             <span>🚑</span>
-            <span>Track Ambulance</span>
+            <span>{showAmbulancePath ? 'Ambulance Path: ON' : 'Ambulance Path: OFF'}</span>
           </button>
         </div>
       </div>

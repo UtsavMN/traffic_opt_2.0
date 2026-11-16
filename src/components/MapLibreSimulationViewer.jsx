@@ -1,16 +1,12 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Map, NavigationControl, setWorkerCount } from 'maplibre-gl';
+import { Map, NavigationControl, config } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { getMetersPerPixel } from '../utils/geoUtils.js';
 import { getGPUInfo, getOptimal2DContext, getMapLibreContextAttributes } from '../utils/gpuUtils.js';
 import { useUIStore } from '../store/uiStore.js';
 
-// Disable redundant MapLibre vector worker threads for hardware-accelerated raster tile rendering
-try {
-  setWorkerCount(0);
-} catch (e) {
-  // Ignore
-}
+// Explicitly provide the local MapLibre worker script to prevent unhandled actor rejections
+config.WORKER_URL = '/maplibre-gl-worker.mjs';
 
 const MAP_STYLES = {
   osm_dark: {

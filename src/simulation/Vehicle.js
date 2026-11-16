@@ -72,7 +72,8 @@ export class Vehicle {
     this.pos.x = 0;
     this.pos.y = 0;
     this.heading = 0;
-    this.speed = this.vFreeFlow * (0.45 + Math.random() * 0.20);
+    // Spawn already at brisk cruising speed (85% to 100% of free-flow speed)
+    this.speed = this.vFreeFlow * (0.85 + Math.random() * 0.15);
     this.state = 'moving';
     this.currentWaitTime = 0;
     this.tripWaitTime = 0;
@@ -91,8 +92,11 @@ export class Vehicle {
     this.engine = null;
     
     this.currentEdgeId = null;
-    this.laneIndex = undefined;
+    this.subLaneTrack = 0;
+    this.numTracks = 2;
+    this.laneIndex = 0;
     this.laneOffset = undefined;
+    this.lateralJitterM = 0;
     
     this._updatePosition(0);
   }
@@ -136,6 +140,137 @@ export class Vehicle {
     return edge.cardinalDir;
   }
 
+  // Authentic Indian Multi-Stream Sub-Lane Track Distribution
+  // Dynamically divides physical carriageway into 2, 3, or 4 side-by-side lines of travel
+  _calculateTracks(edge) {
+    const oppEdge = this.graph ? this.graph.edges.get(`${edge.to}->${edge.from}`) : null;
+    const isTwoWay = !!oppEdge;
+    const numLanes = edge.lanes || 1;
+    const laneWidthM = edge.laneWidthM || 3.1;
+
+    // Available directional carriageway width in meters
+    const dirWidthM = numLanes * laneWidthM;
+
+    let numTracks = 2;
+    let trackOffsetsM = [];
+
+    if (isTwoWay) {
+      // In Left-Hand Traffic (LHT), forward vehicles travel on the LEFT of the centerline (negative offset).
+      // Left road curb is at -dirWidthM. Median/centerline is at 0.
+      if (dirWidthM >= 6.0) {
+        numTracks = 4;
+        trackOffsetsM = [
+          -(dirWidthM - 0.65), // Track 0 (Left curb: slow traffic, buses, autos)
+          -(dirWidthM * 0.68), // Track 1 (Mid-left: cars, autos)
+          -(dirWidthM * 0.36), // Track 2 (Mid-right: cars, cabs)
+          -0.55,               // Track 3 (Median line: fast cars, filtering two-wheelers)
+        ];
+      } else if (dirWidthM >= 3.6) {
+        numTracks = 3;
+        trackOffsetsM = [
+          -(dirWidthM - 0.60), // Track 0 (Left curb: autos, buses, scooters)
+          -(dirWidthM * 0.50), // Track 1 (Center: cars, autos)
+          -0.55,               // Track 2 (Median line: cars, overtaking bikes)
+        ];
+      } else {
+        numTracks = 2;
+        trackOffsetsM = [
+          -(dirWidthM - 0.50), // Track 0 (Left curb)
+          -0.50,               // Track 1 (Right near median)
+        ];
+      }
+    } else {
+      // One-way carriageway: vehicles use the entire road from -dirWidthM/2 to +dirWidthM/2
+      const halfW = dirWidthM / 2;
+      if (dirWidthM >= 6.2) {
+        numTracks = 4;
+        trackOffsetsM = [
+          -(halfW - 0.65),
+          -(dirWidthM * 0.18),
+          +(dirWidthM * 0.18),
+          +(halfW - 0.65),
+        ];
+      } else if (dirWidthM >= 3.8) {
+        numTracks = 3;
+        trackOffsetsM = [
+          -(halfW - 0.60),
+          0.0,
+          +(halfW - 0.60),
+        ];
+      } else {
+        numTracks = 2;
+        trackOffsetsM = [
+          -(halfW - 0.50),
+          +(halfW - 0.50),
+        ];
+      }
+    }
+
+    return { isTwoWay, dirWidthM, numTracks, trackOffsetsM };
+  }
+
+  _pickSubLaneTrack(type, numTracks) {
+    if (numTracks <= 1) return 0;
+    
+    if (type === 'bus' || type === 'truck') {
+      // BMTC buses and freight stick to the left curb track or adjacent track
+      return Math.random() < 0.80 ? 0 : 1;
+    }
+    
+    if (type === 'rickshaw') {
+      // Auto-rickshaws love hugging the left curb!
+      if (numTracks >= 3) {
+        const r = Math.random();
+        if (r < 0.65) return 0; // Left curb
+        if (r < 0.90) return 1; // Center
+        return 2; // Overtaking
+      }
+      return Math.random() < 0.75 ? 0 : 1;
+    }
+    
+    if (type === 'car') {
+      // Cars distribute across tracks, favoring center and right
+      if (numTracks >= 4) {
+        const r = Math.random();
+        if (r < 0.15) return 0;
+        if (r < 0.45) return 1;
+        if (r < 0.80) return 2;
+        return 3;
+      }
+      if (numTracks === 3) {
+        const r = Math.random();
+        if (r < 0.20) return 0;
+        if (r < 0.60) return 1;
+        return 2;
+      }
+      return Math.random() < 0.45 ? 0 : 1;
+    }
+    
+    if (type === 'motorcycle') {
+      // Agile two-wheelers distribute everywhere, especially left curb and median
+      if (numTracks >= 4) {
+        const r = Math.random();
+        if (r < 0.35) return 0; // Left curb / gutter filtering
+        if (r < 0.65) return numTracks - 1; // Centerline / median filtering
+        return Math.floor(Math.random() * numTracks);
+      }
+      if (numTracks === 3) {
+        const r = Math.random();
+        if (r < 0.40) return 0;
+        if (r < 0.70) return 2;
+        return 1;
+      }
+      return Math.random() < 0.50 ? 0 : 1;
+    }
+    
+    if (type === 'emergency') {
+      // Emergency ambulance takes the fast overtaking track
+      return numTracks - 1;
+    }
+    
+    return Math.floor(Math.random() * numTracks);
+  }
+
   _updatePosition(dt) {
     const edge = this.currentEdge;
     if (!edge) {
@@ -146,67 +281,27 @@ export class Vehicle {
     const to = this.graph.nodes.get(edge.to);
     if (!from || !to) return;
 
+    const { isTwoWay, dirWidthM, numTracks, trackOffsetsM } = this._calculateTracks(edge);
+    this.numTracks = numTracks;
+
     if (this.currentEdgeId !== edge.id) {
       this.currentEdgeId = edge.id;
-      const numLanes = edge.lanes || 1;
+      this.subLaneTrack = this._pickSubLaneTrack(this.type, numTracks);
+      this.laneIndex = this.subLaneTrack;
 
-      // Real Indian Road Lane Distribution:
-      // - Lane 0 = Leftmost curb lane (buses, trucks, auto-rickshaws, slow movers)
-      // - Higher lanes = Faster overtaking lanes towards the center dividing line
-      if (numLanes <= 1) {
-        this.laneIndex = 0;
-      } else if (this.type === 'bus' || this.type === 'truck' || this.type === 'rickshaw') {
-        this.laneIndex = 0; // Heavy/slow traffic sticks to the left curb lane
-      } else if (this.sirenActive) {
-        this.laneIndex = numLanes - 1; // Emergency vehicles take the fast lane
-      } else if (this.type === 'car') {
-        // Cars distribute across lanes (preferring lane 1 on multi-lane highways)
-        this.laneIndex = (numLanes >= 3)
-          ? (Math.random() < 0.65 ? 1 : (Math.random() < 0.5 ? 2 : 0))
-          : (Math.random() < 0.65 ? 1 : 0);
-      } else {
-        // Motorcycles distribute freely
-        this.laneIndex = Math.floor(Math.random() * numLanes);
-      }
-      this.laneIndex = Math.max(0, Math.min(numLanes - 1, this.laneIndex));
-    }
-    
-    // Indian Left-Hand Traffic (LHT) Lateral Offset:
-    // When an opposing edge exists, the road carries traffic in both directions along the same centerline.
-    // perpX, perpY points to the RIGHT of the vehicle's heading.
-    // In India (LHT), forward vehicles travel on the LEFT side of the centerline (negative offset).
-    const oppEdge = this.graph ? this.graph.edges.get(`${edge.to}->${edge.from}`) : null;
-    const isTwoWay = !!oppEdge;
-    const numLanes = edge.lanes || 1;
-    // Use edge-specific authentic Indian lane width (e.g. 2.6m for residential cross, 3.5m for arterial)
-    const lw = (edge.laneWidthM || 2.85) * CANVAS_SCALE;
-
-    let baseOffset = 0;
-    if (isTwoWay) {
-      // Innermost fast lane (numLanes - 1) is adjacent to median line: -0.5 * lw
-      // Outermost curb lane (0) is adjacent to left road shoulder: -(numLanes - 0.5) * lw
-      baseOffset = -((numLanes - 1 - this.laneIndex) + 0.5) * lw;
-    } else {
-      // One-way carriageway: distributed symmetrically about the centerline
-      baseOffset = (this.laneIndex - (numLanes - 1) / 2) * lw;
+      // Driver personal lateral variation (+/- 0.15m)
+      const seed = (this.id.charCodeAt(this.id.length - 1) || 5) % 11;
+      this.lateralJitterM = (seed - 5) * 0.03;
     }
 
-    // Intra-lane lateral staggering (Indian multi-vehicle filtering):
-    // Narrow 2-wheelers (0.8m) stagger left/right so 2 motorcycles can ride abreast in 1 lane.
-    let intraLaneOffset = 0;
-    if (this.type === 'motorcycle') {
-      const charCode = this.id.charCodeAt(this.id.length - 1) || 0;
-      const stagger = (charCode % 2 === 0 ? 0.22 : -0.22);
-      intraLaneOffset = stagger * lw;
-    } else if (this.type === 'rickshaw') {
-      intraLaneOffset = -0.10 * lw; // Auto-rickshaws hug the left curb
-    }
+    const currentTrack = Math.max(0, Math.min(numTracks - 1, this.subLaneTrack ?? 0));
+    const baseOffsetM = trackOffsetsM[currentTrack];
+    const targetOffsetM = baseOffsetM + (this.lateralJitterM || 0);
+    const targetLaneOffset = targetOffsetM * (CANVAS_SCALE || 1);
 
-    const targetLaneOffset = baseOffset + intraLaneOffset;
-    
     if (this.laneOffset === undefined) this.laneOffset = targetLaneOffset;
-    // Smooth lane transition
-    const laneLerp = dt > 0 ? 1 - Math.pow(0.9, dt * 60) : 1;
+    // Fluid lateral shift when changing tracks (~0.5s to 0.7s)
+    const laneLerp = dt > 0 ? 1 - Math.pow(0.85, dt * 60) : 1;
     this.laneOffset += (targetLaneOffset - this.laneOffset) * laneLerp;
 
     const geom = edge.geometry;
@@ -257,11 +352,20 @@ export class Vehicle {
 
     // Real-world Geographic GPS coordinates [lng, lat] and bearing for MapLibre rendering
     if (edge.geoCoords && edge.geoCoords.length >= 2) {
-      // 1:1 physical meter lane offset without artificial inflation
       const rawOffsetM = (this.laneOffset || 0) / (CANVAS_SCALE || 1);
-      // Bound offset strictly within the physical road carriageway
-      const maxRoadOffset = Math.max(1.1, ((edge.lanes || 1) * (edge.laneWidthM || 2.85)) * 0.45);
-      const laneOffsetM = Math.max(-maxRoadOffset, Math.min(maxRoadOffset, rawOffsetM));
+      
+      // Bound offset strictly within the physical road carriageway (no 1.28m clamp!)
+      let laneOffsetM;
+      if (isTwoWay) {
+        // Forward traffic stays on the left: between -(dirWidthM - 0.25) and -0.25
+        const minOffsetM = -(dirWidthM - 0.25);
+        const maxOffsetM = -0.25;
+        laneOffsetM = Math.max(minOffsetM, Math.min(maxOffsetM, rawOffsetM));
+      } else {
+        // One-way carriageway: between -(dirWidthM / 2 - 0.25) and +(dirWidthM / 2 - 0.25)
+        const maxHalfM = dirWidthM / 2 - 0.25;
+        laneOffsetM = Math.max(-maxHalfM, Math.min(maxHalfM, rawOffsetM));
+      }
 
       const geo = interpolateGeoPoint(edge.geoCoords, this.segmentProgress, laneOffsetM);
       this.lng = geo.lng;
@@ -302,17 +406,19 @@ export class Vehicle {
     const to = this.graph.nodes.get(edge.to);
 
     // 1. Spatial Speed Dynamics based on vehicle type and road hierarchy
-    // Arterial flyovers/highways allow full cruising speed, while urban cross roads support authentic Bengaluru flow
+    // Arterial flyovers/highways allow full cruising speed, while urban collector/cross roads support authentic Bengaluru flow
     let tierSpeedCap = Infinity;
-    if (edge.roadTier === 'cross') tierSpeedCap = ((38 * 1000) / 3600) * CANVAS_SCALE;
-    else if (edge.roadTier === 'gully') tierSpeedCap = ((26 * 1000) / 3600) * CANVAS_SCALE;
-    else if (edge.roadTier === 'collector') tierSpeedCap = ((46 * 1000) / 3600) * CANVAS_SCALE;
+    if (edge.roadTier === 'cross') tierSpeedCap = ((44 * 1000) / 3600) * CANVAS_SCALE;
+    else if (edge.roadTier === 'gully') tierSpeedCap = ((32 * 1000) / 3600) * CANVAS_SCALE;
+    else if (edge.roadTier === 'collector') tierSpeedCap = ((52 * 1000) / 3600) * CANVAS_SCALE;
 
-    const roadHierarchyMult = edge.roadTier === 'arterial' ? 1.20 : (edge.roadTier === 'main' ? 1.10 : 1.00);
+    const roadHierarchyMult = edge.roadTier === 'arterial' ? 1.25 : (edge.roadTier === 'main' ? 1.15 : (edge.roadTier === 'collector' ? 1.05 : 1.00));
     const freeFlowTarget = Math.min(this.vFreeFlow * roadHierarchyMult * weatherMult, tierSpeedCap);
     const approachTarget = Math.min(this.vApproach * weatherMult, tierSpeedCap);
 
-    // --- 1. Find Lead Vehicle (Car Following + Cross-Edge Horizon Detection) ---
+    // --- 1. Find Lead Vehicle (Car Following with Sub-Lane Lateral Overlap Detection) ---
+    // In multi-stream heterogeneous traffic, vehicles only follow a lead vehicle if their lateral paths overlap!
+    // Vehicles in adjacent sub-lane tracks travel side-by-side without artificial braking.
     const queryRadius = Math.max(50, (this.speed * 2.2) + this.length);
     const ahead = spatialGrid.query(this.pos.x, this.pos.y, queryRadius);
     
@@ -327,25 +433,36 @@ export class Vehicle {
     for (const other of ahead) {
       if (other.id === this.id || !other.alive) continue;
       
-      // Case A: Lead vehicle on the exact same edge and lane
-      if (other.currentEdgeId === this.currentEdgeId && other.laneIndex === this.laneIndex) {
+      // Case A: On the exact same road edge
+      if (other.currentEdgeId === this.currentEdgeId) {
         if (other.segmentProgress > this.segmentProgress) {
-          // Gap is distance between centers minus both half-lengths
-          const gap = (other.segmentProgress - this.segmentProgress) * edge.length - (this.length + other.length) / 2;
-          if (gap < minGap && gap >= 0) {
-            minGap = gap;
-            leadVehicle = other;
+          // Check lateral clearance between this vehicle and the other vehicle
+          const lateralGap = Math.abs(this.laneOffset - other.laneOffset);
+          // Collision overlap envelope: half-width of this + half-width of other + buffer (0.28m * CANVAS_SCALE)
+          const lateralOverlapThreshold = ((this.width + other.width) * 0.5) + (0.28 * (CANVAS_SCALE || 1));
+          
+          if (lateralGap < lateralOverlapThreshold) {
+            // Longitudinal gap between centers minus both half-lengths
+            const gap = (other.segmentProgress - this.segmentProgress) * edge.length - (this.length + other.length) / 2;
+            if (gap < minGap && gap >= 0) {
+              minGap = gap;
+              leadVehicle = other;
+            }
           }
         }
       }
       // Case B: Cross-edge horizon detection — lead vehicle just entered downstream turn edge
-      else if (nextEdge && other.currentEdgeId === nextEdgeId && this.segmentProgress > 0.60) {
-        const remainingOnCurrent = (1 - this.segmentProgress) * edge.length;
-        const enteredOnNext = other.segmentProgress * nextEdge.length;
-        const crossEdgeGap = remainingOnCurrent + enteredOnNext - (this.length + other.length) / 2;
-        if (crossEdgeGap < minGap && crossEdgeGap >= 0) {
-          minGap = crossEdgeGap;
-          leadVehicle = other;
+      else if (nextEdge && other.currentEdgeId === nextEdgeId && this.segmentProgress > 0.65) {
+        const lateralGap = Math.abs(this.laneOffset - other.laneOffset);
+        const lateralOverlapThreshold = ((this.width + other.width) * 0.5) + (0.35 * (CANVAS_SCALE || 1));
+        if (lateralGap < lateralOverlapThreshold) {
+          const remainingOnCurrent = (1 - this.segmentProgress) * edge.length;
+          const enteredOnNext = other.segmentProgress * nextEdge.length;
+          const crossEdgeGap = remainingOnCurrent + enteredOnNext - (this.length + other.length) / 2;
+          if (crossEdgeGap < minGap && crossEdgeGap >= 0) {
+            minGap = crossEdgeGap;
+            leadVehicle = other;
+          }
         }
       }
     }
@@ -383,18 +500,18 @@ export class Vehicle {
           }
           if (this.clearingJunction) {
             // Inside intersection box: accelerate briskly to clear junction rapidly
-            currentV0 = freeFlowTarget * 1.30;
-            accelMult = 2.20;
-            headwayTarget = 0.30;
+            currentV0 = freeFlowTarget * 1.35;
+            accelMult = 2.60;
+            headwayTarget = 0.22;
             inGreenDischarge = true;
           }
-        } else if (distToStopLine < 130 * CANVAS_SCALE) {
-          // Approaching / queued within 130m of intersection
+        } else if (distToStopLine < 48 * CANVAS_SCALE) {
+          // Approaching / queued within 48m of intersection (shortened from 130m so cruising speed is preserved)
           if (lightColor === 'GREEN' || this.sirenActive) {
             // Green Wave Surge: Eager Bengaluru green discharge
-            currentV0 = freeFlowTarget * 1.20;
-            accelMult = 1.85;
-            headwayTarget = Math.max(0.35, this.T * 0.50);
+            currentV0 = freeFlowTarget * 1.25;
+            accelMult = 2.40;
+            headwayTarget = Math.max(0.25, this.T * 0.40);
             inGreenDischarge = true;
           } else {
             // Decelerate toward stop bar on amber/red
@@ -476,7 +593,7 @@ export class Vehicle {
     // Police discharge boost & queue compaction:
     const isUnderPolice = nextIntersection && intersections.get(this.route[this.routeIndex + 1])?.policeActive;
     const accelCurrent = (isUnderPolice ? this.a * 1.6 : this.a) * accelMult;
-    const headwayCurrent = isUnderPolice ? 0.5 : headwayTarget;
+    const headwayCurrent = isUnderPolice ? 0.4 : headwayTarget;
     let minDistance = this.speed < 2 ? (this.s0 * 0.65) : this.s0;
 
     if (effectiveGap === Infinity) {
@@ -489,9 +606,9 @@ export class Vehicle {
       // Platoon Green Wave Start-Up Anticipation:
       // When the light is GREEN or in green discharge, eliminate the start-up shockwave
       // As soon as the vehicle ahead starts rolling, trailing vehicles roll forward immediately
-      if (!stopAtIntersection && (inGreenDischarge || this.clearingJunction || (leadVehicle && leadVehicle.speed > 0.8))) {
-        if (this.speed < 4.0 * (CANVAS_SCALE || 1) && effectiveGap > minDistance * 0.70) {
-          s_star = Math.min(s_star, effectiveGap * 0.65);
+      if (!stopAtIntersection && (inGreenDischarge || this.clearingJunction || (leadVehicle && leadVehicle.speed > 0.6))) {
+        if (this.speed < 4.0 * (CANVAS_SCALE || 1) && effectiveGap > minDistance * 0.60) {
+          s_star = Math.min(s_star, effectiveGap * 0.60);
         }
       }
 
@@ -517,47 +634,63 @@ export class Vehicle {
       this.state = 'moving';
     }
 
-    // --- 4. Simple Lane Changing & Two-Wheeler Filtering ---
-    // Two-wheelers filter aggressively through slow queues; other vehicles overtake when delayed
-    const isBike = (this.type === 'motorcycle' || this.type === 'rickshaw');
-    const changeThreshold = isBike ? 0.85 : 0.65;
-    const cooldownMs = isBike ? 900 : 2000;
-    const minSafetyGap = isBike ? 8 * CANVAS_SCALE : 18 * CANVAS_SCALE;
+    // --- 4. Sub-Lane Track Changing & Agile Two-Wheeler Filtering ---
+    // In Bengaluru, vehicles do not sit passively behind stalled queues — they dynamically shift into open tracks!
+    const isBike = (this.type === 'motorcycle');
+    const isAuto = (this.type === 'rickshaw');
+    const changeThreshold = isBike ? 0.85 : (isAuto ? 0.75 : 0.65);
+    const cooldownMs = isBike ? 600 : (isAuto ? 900 : 1500);
+    const minSafetyGap = isBike ? (4.0 * CANVAS_SCALE) : (isAuto ? (7.0 * CANVAS_SCALE) : (10.0 * CANVAS_SCALE));
 
-    if (leadVehicle && this.speed < currentV0 * changeThreshold && edge.lanes > 1) {
+    const numTracks = this.numTracks || 2;
+    if (leadVehicle && (this.speed < currentV0 * changeThreshold || this.speed < 2.0) && numTracks > 1) {
       if (!this.lastLaneChangeTime) this.lastLaneChangeTime = 0;
       
       if (now - this.lastLaneChangeTime > cooldownMs) {
+        const currentTrack = this.subLaneTrack ?? 0;
         const candidates = [];
-        if (this.laneIndex > 0) candidates.push(this.laneIndex - 1);
-        if (this.laneIndex < edge.lanes - 1) candidates.push(this.laneIndex + 1);
+        if (currentTrack > 0) candidates.push(currentTrack - 1);
+        if (currentTrack < numTracks - 1) candidates.push(currentTrack + 1);
         
-        let bestLane = this.laneIndex;
-        let foundSafeLane = false;
+        let bestTrack = currentTrack;
+        let foundSafeTrack = false;
 
-        for (const tLane of candidates) {
+        const { trackOffsetsM } = this._calculateTracks(edge);
+
+        for (const candidateTrack of candidates) {
+          const candidateOffset = trackOffsetsM[candidateTrack] * (CANVAS_SCALE || 1);
           let safe = true;
-          const targetAhead = spatialGrid.query(this.pos.x, this.pos.y, 45);
-          for (const other of targetAhead) {
+
+          const queryBox = spatialGrid.query(this.pos.x, this.pos.y, 45 * (CANVAS_SCALE || 1));
+          for (const other of queryBox) {
             if (other.id === this.id || !other.alive) continue;
-            if (other.currentEdgeId === this.currentEdgeId && other.laneIndex === tLane) {
-               const dist = (other.segmentProgress - this.segmentProgress) * edge.length;
-               const gap = Math.abs(dist) - (this.length + other.length) / 2;
-               if (gap < minSafetyGap) {
-                 safe = false; // Too close!
-                 break;
-               }
+            if (other.currentEdgeId === this.currentEdgeId) {
+              const otherOffset = other.laneOffset;
+              const latDist = Math.abs(candidateOffset - otherOffset);
+              const overlapThresh = ((this.width + other.width) * 0.5) + (0.28 * (CANVAS_SCALE || 1));
+              
+              if (latDist < overlapThresh) {
+                // In collision zone of candidate track! Check longitudinal gap
+                const longDist = (other.segmentProgress - this.segmentProgress) * edge.length;
+                const gap = Math.abs(longDist) - (this.length + other.length) / 2;
+                if (gap < minSafetyGap) {
+                  safe = false;
+                  break;
+                }
+              }
             }
           }
+
           if (safe) {
-            bestLane = tLane;
-            foundSafeLane = true;
+            bestTrack = candidateTrack;
+            foundSafeTrack = true;
             break;
           }
         }
 
-        if (foundSafeLane) {
-          this.laneIndex = bestLane;
+        if (foundSafeTrack && bestTrack !== currentTrack) {
+          this.subLaneTrack = bestTrack;
+          this.laneIndex = bestTrack;
           this.lastLaneChangeTime = now;
         }
       }

@@ -59,9 +59,9 @@ export const ROAD_TIER_CONFIG = {
   tertiary: {
     tier: 'collector',
     name: 'Collector & Connector Street (e.g. Spencer Rd, Davis Rd)',
-    laneWidthM: 2.85,
-    defaultLanes: 1,
-    speedLimitKmh: 40,
+    laneWidthM: 3.2,
+    defaultLanes: 2,
+    speedLimitKmh: 48,
     surfaceColor: '#2B3444',
     casingColor: '#10151E',
     divider: 'dashed_white',
@@ -69,9 +69,9 @@ export const ROAD_TIER_CONFIG = {
   residential: {
     tier: 'cross',
     name: 'Residential Cross Road (e.g. 1st to 9th Cross, Benson Cross)',
-    laneWidthM: 2.6,
+    laneWidthM: 2.8,
     defaultLanes: 1,
-    speedLimitKmh: 35,
+    speedLimitKmh: 38,
     surfaceColor: '#2D3748', // High-contrast crisp slate asphalt
     casingColor: '#121822', // Distinct edge boundary
     divider: 'none', // Authentic: NO bright yellow highway stripe!
@@ -122,61 +122,61 @@ export const VEHICLE_DIMS = {
   motorcycle: {
     length: 2.0,
     width: 0.8,
-    freeFlowSpeedKmh: 54, // Quick, agile Bangalore two-wheelers
-    approachSpeedKmh: 38,
-    accel: 4.5,           // Eager launch acceleration
-    decel: 5.5,
-    headway: 0.50,        // Tight urban headway
-    minGap: 2.5,          // Minimal queue bumper distance
+    freeFlowSpeedKmh: 58, // Agile, fast Bangalore two-wheelers
+    approachSpeedKmh: 42,
+    accel: 5.5,           // Eager launch acceleration
+    decel: 6.0,
+    headway: 0.35,        // Tight urban headway
+    minGap: 1.2,          // Minimal queue bumper distance (1.2m)
   },
   rickshaw: {
     length: 2.8,
     width: 1.4,
-    freeFlowSpeedKmh: 42,
-    approachSpeedKmh: 30,
-    accel: 2.8,
-    decel: 4.2,
-    headway: 0.70,
-    minGap: 3.5,
+    freeFlowSpeedKmh: 48,
+    approachSpeedKmh: 35,
+    accel: 3.6,           // Brisk auto-rickshaw launch
+    decel: 4.5,
+    headway: 0.45,
+    minGap: 1.6,
   },
   car: {
     length: 4.5,
     width: 1.8,
-    freeFlowSpeedKmh: 50,
-    approachSpeedKmh: 35,
-    accel: 3.2,
-    decel: 4.8,
-    headway: 0.80,
-    minGap: 5.0,
+    freeFlowSpeedKmh: 55, // Fast city cruising
+    approachSpeedKmh: 40,
+    accel: 4.0,           // Responsive acceleration
+    decel: 5.2,
+    headway: 0.50,
+    minGap: 2.0,          // 2.0m bumper gap in queue
   },
   bus: {
-    length: 11.5,
+    length: 11.0,
     width: 2.5,
-    freeFlowSpeedKmh: 40,
-    approachSpeedKmh: 26,
-    accel: 2.0,
-    decel: 3.2,
-    headway: 1.1,
-    minGap: 8.0,
+    freeFlowSpeedKmh: 46,
+    approachSpeedKmh: 32,
+    accel: 2.6,
+    decel: 3.8,
+    headway: 0.75,
+    minGap: 3.2,
   },
   truck: {
     length: 8.5,
     width: 2.4,
-    freeFlowSpeedKmh: 36,
-    approachSpeedKmh: 24,
-    accel: 1.6,
-    decel: 2.8,
-    headway: 1.2,
-    minGap: 9.0,
+    freeFlowSpeedKmh: 42,
+    approachSpeedKmh: 28,
+    accel: 2.2,
+    decel: 3.5,
+    headway: 0.85,
+    minGap: 3.5,
   },
   emergency: {
     length: 5.5,
     width: 2.1,
-    freeFlowSpeedKmh: 68,
-    approachSpeedKmh: 50,
-    accel: 4.8,
-    decel: 5.5,
-    headway: 0.60,
-    minGap: 3.5,
+    freeFlowSpeedKmh: 75,
+    approachSpeedKmh: 55,
+    accel: 5.8,
+    decel: 6.5,
+    headway: 0.35,
+    minGap: 1.8,
   },
 };

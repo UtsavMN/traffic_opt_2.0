@@ -79,7 +79,7 @@ const MAP_STYLES = {
 
 const BENGALURU_PRESETS = [
   { name: 'City Overview', coords: [77.6142, 13.0038], zoom: 15.2, pitch: 0 },
-  { name: 'Davis Road Junction', coords: [77.6140, 13.0040], zoom: 18.2, pitch: 35 },
+  { name: 'Davis Road Junction', coords: [77.6162, 13.0054], zoom: 18.2, pitch: 32 },
   { name: 'Arabic College 4-Way', coords: [77.6200, 13.0180], zoom: 18.4, pitch: 25 },
   { name: 'Tannery Road Corridor', coords: [77.6160, 13.0090], zoom: 18.0, pitch: 30 },
   { name: 'Armstrong Road', coords: [77.6080, 12.9980], zoom: 18.5, pitch: 20 },
@@ -116,6 +116,7 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
     });
 
     mapRef.current = map;
+    if (typeof window !== 'undefined') window.__sancharMap = map;
 
     map.addControl(new NavigationControl({ visualizePitch: true }), 'bottom-left');
 

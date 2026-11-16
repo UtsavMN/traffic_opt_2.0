@@ -723,10 +723,12 @@ export class Engine {
         const r = await this.findPathAsync(originNode.id, destNode.id);
         if (r && r.length >= 2) {
           const firstEdgeId = `${r[0]}->${r[1]}`;
-          // O(1) clearance check using spatial grid around origin node
+          // Multi-track origin clearance check: allow vehicles to spawn into parallel sub-lane tracks
           const nearby = this.spatialGrid.query(originNode.x, originNode.y, 25 * (CANVAS_SCALE || 1));
-          const originOccupied = nearby.some(other => other.alive && other.currentEdgeId === firstEdgeId && other.segmentProgress < 0.08);
-          if (!originOccupied) {
+          const originOccupancy = nearby.filter(other => other.alive && other.currentEdgeId === firstEdgeId && other.segmentProgress < 0.05).length;
+          const firstEdge = this.graph.edges.get(firstEdgeId);
+          const maxOriginVehicles = Math.max(1, (firstEdge?.lanes || 1) >= 2 ? 3 : 2);
+          if (originOccupancy < maxOriginVehicles) {
             route = r;
             route.originName = originName;
             route.destinationName = destName;

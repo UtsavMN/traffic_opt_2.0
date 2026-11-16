@@ -66,7 +66,7 @@ export class Vehicle {
     this.pos.x = 0;
     this.pos.y = 0;
     this.heading = 0;
-    this.speed = 0;
+    this.speed = this.vFreeFlow * (0.45 + Math.random() * 0.20);
     this.state = 'moving';
     this.currentWaitTime = 0;
     this.tripWaitTime = 0;
@@ -258,13 +258,13 @@ export class Vehicle {
     const to = this.graph.nodes.get(edge.to);
 
     // 1. Spatial Speed Dynamics based on vehicle type and road hierarchy
-    // Arterial flyovers/highways allow full cruising speed, while residential cross roads require calmer urban speeds
+    // Arterial flyovers/highways allow full cruising speed, while urban cross roads support authentic Bengaluru flow
     let tierSpeedCap = Infinity;
-    if (edge.roadTier === 'cross') tierSpeedCap = ((26 * 1000) / 3600) * CANVAS_SCALE;
-    else if (edge.roadTier === 'gully') tierSpeedCap = ((18 * 1000) / 3600) * CANVAS_SCALE;
-    else if (edge.roadTier === 'collector') tierSpeedCap = ((34 * 1000) / 3600) * CANVAS_SCALE;
+    if (edge.roadTier === 'cross') tierSpeedCap = ((38 * 1000) / 3600) * CANVAS_SCALE;
+    else if (edge.roadTier === 'gully') tierSpeedCap = ((26 * 1000) / 3600) * CANVAS_SCALE;
+    else if (edge.roadTier === 'collector') tierSpeedCap = ((46 * 1000) / 3600) * CANVAS_SCALE;
 
-    const roadHierarchyMult = edge.roadTier === 'arterial' ? 1.15 : (edge.roadTier === 'main' ? 1.05 : 0.90);
+    const roadHierarchyMult = edge.roadTier === 'arterial' ? 1.20 : (edge.roadTier === 'main' ? 1.10 : 1.00);
     const freeFlowTarget = Math.min(this.vFreeFlow * roadHierarchyMult * weatherMult, tierSpeedCap);
     const approachTarget = Math.min(this.vApproach * weatherMult, tierSpeedCap);
 
@@ -306,7 +306,7 @@ export class Vehicle {
       }
     }
 
-    // --- 2. Intersection Control & Yellow Box Junction Clearance ---
+    // --- 2. Intersection Control & Green Wave Platoon Discharge ---
     let intersectionGap = Infinity;
     let stopAtIntersection = false;
     let distToIntersection = Infinity;
@@ -315,6 +315,7 @@ export class Vehicle {
     let currentV0 = freeFlowTarget;
     let accelMult = 1.0;
     let headwayTarget = this.T;
+    let inGreenDischarge = false;
     
     const nextIntersection = this.nextNode;
     if (nextIntersection) {
@@ -338,20 +339,26 @@ export class Vehicle {
           }
           if (this.clearingJunction) {
             // Inside intersection box: accelerate briskly to clear junction rapidly
-            currentV0 = freeFlowTarget * 1.15;
-            accelMult = 1.35;
-            headwayTarget = 0.5;
+            currentV0 = freeFlowTarget * 1.25;
+            accelMult = 1.70;
+            headwayTarget = 0.35;
+            inGreenDischarge = true;
           }
-        } else if (distToStopLine < 50 * CANVAS_SCALE) {
-          // Approaching intersection (within 50px)
+        } else if (distToStopLine < 130 * CANVAS_SCALE) {
+          // Approaching / queued within 130m of intersection
           if (lightColor === 'GREEN' || this.sirenActive) {
-            currentV0 = Math.max(approachTarget, freeFlowTarget * 0.90);
+            // Green Wave Surge: Do NOT slow down! Accelerate eagerly to clear the green phase
+            currentV0 = freeFlowTarget * 1.12;
+            accelMult = 1.50;
+            headwayTarget = Math.max(0.40, this.T * 0.60);
+            inGreenDischarge = true;
           } else {
+            // Decelerate toward stop bar on amber/red
             currentV0 = approachTarget;
           }
         }
 
-        // Corner turning slowdown (realistic 18-22 km/h entry speed into turns)
+        // Corner turning slowdown (brisk 28 km/h entry speed into turns)
         if (this.routeIndex + 2 < this.route.length && distToStopLine < 25 * CANVAS_SCALE) {
           const nextNode = this.graph.nodes.get(this.route[this.routeIndex + 1]);
           const afterNode = this.graph.nodes.get(this.route[this.routeIndex + 2]);
@@ -361,7 +368,7 @@ export class Vehicle {
             const dot = dx1 * dx2 + dy1 * dy2;
             const m1 = Math.hypot(dx1, dy1), m2 = Math.hypot(dx2, dy2);
             if (m1 > 0 && m2 > 0 && (dot / (m1 * m2)) < 0.7) {
-              const turnLimit = ((22 * 1000) / 3600) * CANVAS_SCALE;
+              const turnLimit = ((28 * 1000) / 3600) * CANVAS_SCALE;
               currentV0 = Math.min(currentV0, turnLimit);
             }
           }
@@ -376,16 +383,16 @@ export class Vehicle {
           if (distToStopLine <= (this.length / 2) + 0.8 * CANVAS_SCALE) {
             this.speed = 0;
           }
-        } else if (!stopAtIntersection && distToStopLine > 0 && distToStopLine < 30 * CANVAS_SCALE) {
+        } else if (!stopAtIntersection && distToStopLine > 0 && distToStopLine < 25 * CANVAS_SCALE) {
           // Yellow Box Rule ("Do Not Block The Box"):
-          // Even on GREEN, check if an intersecting cross-traffic vehicle is clearing or blocking the box
+          // Only stop if an intersecting vehicle is ACTUALLY stalled/deadlocked inside the core box
           const isMyPhaseNS = (dir === 'N' || dir === 'S');
-          const centerOccupants = spatialGrid.query(intObj.x, intObj.y, stopLineDist * 0.85);
+          const centerOccupants = spatialGrid.query(intObj.x, intObj.y, stopLineDist * 0.55);
           for (const occupant of centerOccupants) {
             if (occupant.id === this.id || !occupant.alive) continue;
             const occDir = occupant._getDirection();
             const isOccPhaseNS = (occDir === 'N' || occDir === 'S');
-            if (isMyPhaseNS !== isOccPhaseNS && occupant.speed < 4.0) {
+            if (isMyPhaseNS !== isOccPhaseNS && occupant.speed < 1.0 * (CANVAS_SCALE || 1)) {
               stopAtIntersection = true;
               intersectionGap = Math.max(0.5, distToStopLine - (this.length / 2));
               break;
@@ -419,21 +426,31 @@ export class Vehicle {
       }
     }
 
-    // --- 3. Intelligent Driver Model (IDM) Physics ---
+    // --- 3. Intelligent Driver Model (IDM) Physics with Platoon Start-Up Anticipation ---
     let dv_dt = 0;
     
     // Police discharge boost & queue compaction:
     const isUnderPolice = nextIntersection && intersections.get(this.route[this.routeIndex + 1])?.policeActive;
-    const accelCurrent = (isUnderPolice ? this.a * 1.5 : this.a) * accelMult;
-    const headwayCurrent = isUnderPolice ? 0.6 : headwayTarget;
-    const minDistance = this.speed < 2 ? (this.s0 * 0.65) : this.s0;
+    const accelCurrent = (isUnderPolice ? this.a * 1.6 : this.a) * accelMult;
+    const headwayCurrent = isUnderPolice ? 0.5 : headwayTarget;
+    let minDistance = this.speed < 2 ? (this.s0 * 0.65) : this.s0;
 
     if (effectiveGap === Infinity) {
       // Free road term
       dv_dt = accelCurrent * (1 - Math.pow(this.speed / currentV0, 4));
     } else {
       // Interaction term
-      const s_star = minDistance + Math.max(0, (this.speed * headwayCurrent) + (this.speed * deltaV) / (2 * Math.sqrt(accelCurrent * this.b)));
+      let s_star = minDistance + Math.max(0, (this.speed * headwayCurrent) + (this.speed * deltaV) / (2 * Math.sqrt(accelCurrent * this.b)));
+      
+      // Platoon Green Wave Start-Up Anticipation:
+      // When the light is GREEN or in green discharge, eliminate the start-up shockwave
+      // As soon as the vehicle ahead starts rolling, trailing vehicles roll forward immediately
+      if (!stopAtIntersection && (inGreenDischarge || this.clearingJunction || (leadVehicle && leadVehicle.speed > 0.8))) {
+        if (this.speed < 4.0 * (CANVAS_SCALE || 1) && effectiveGap > minDistance * 0.70) {
+          s_star = Math.min(s_star, effectiveGap * 0.65);
+        }
+      }
+
       dv_dt = accelCurrent * (1 - Math.pow(this.speed / currentV0, 4) - Math.pow(s_star / Math.max(0.1, effectiveGap), 2));
     }
 

@@ -55,8 +55,12 @@ server.listen(4173, async () => {
   const errors = [];
   page.on('console', msg => {
     if (msg.type() === 'error') {
-      errors.push(msg.text());
-      console.error('[BROWSER ERROR]', msg.text());
+      const text = msg.text();
+      // Ignore optional local Python backend health check connection failure
+      if (!text.includes('ERR_CONNECTION_REFUSED')) {
+        errors.push(text);
+      }
+      console.error('[BROWSER ERROR]', text);
     } else {
       console.log('[BROWSER LOG]', msg.text());
     }

@@ -31,6 +31,7 @@ export default function App() {
         setTimeLocked={sim.setTimeLocked}
         changeScenario={sim.changeScenario}
         triggerAccident={sim.triggerAccident}
+        spawnAmbulance={sim.spawnAmbulance}
         setOverlay={sim.setOverlay}
       />
       <div className="canvas-container" style={{ position: 'relative', width: '100%', height: '100%', overflow: 'hidden' }}>

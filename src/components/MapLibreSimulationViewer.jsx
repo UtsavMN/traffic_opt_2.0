@@ -316,6 +316,150 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
         }
 
         // -------------------------------------------------------------
+        // 1.5 Ambulance Emergency Priority Corridor & Route Visualization
+        // -------------------------------------------------------------
+        if (activeEngine.vehicles && activeEngine.graph) {
+          const now = performance.now();
+          const dashPhase = (now / 22) % 24;
+          const strobe = Math.floor(now / 150) % 2 === 0;
+          const strokeColor = strobe ? '#FF1744' : '#2979FF';
+          const glowColor = strobe ? 'rgba(255, 23, 68, 0.28)' : 'rgba(41, 121, 255, 0.28)';
+
+          for (const v of activeEngine.vehicles) {
+            if (!v.alive || v.type !== 'emergency') continue;
+            if (!v.lng || !v.lat) continue;
+
+            const vPos = map.project([v.lng, v.lat]);
+            const pathPts = [vPos];
+
+            // Build geometric polyline across remaining route
+            if (v.route && v.routeIndex !== undefined) {
+              for (let i = v.routeIndex; i < v.route.length - 1; i++) {
+                const fromId = v.route[i];
+                const toId = v.route[i + 1];
+                const edge = activeEngine.graph.getEdge(fromId, toId);
+
+                if (edge && edge.geoCoords && edge.geoCoords.length >= 2) {
+                  const startSeg = (i === v.routeIndex)
+                    ? Math.min(edge.geoCoords.length - 1, Math.floor(v.segmentProgress * (edge.geoCoords.length - 1)))
+                    : 0;
+
+                  for (let g = startSeg; g < edge.geoCoords.length; g++) {
+                    const coord = edge.geoCoords[g];
+                    pathPts.push(map.project([coord[0], coord[1]]));
+                  }
+                } else {
+                  const toNode = activeEngine.graph.nodes.get(toId);
+                  if (toNode && toNode.lng && toNode.lat) {
+                    pathPts.push(map.project([toNode.lng, toNode.lat]));
+                  }
+                }
+              }
+            }
+
+            // Draw glowing pulsating emergency route corridor
+            if (pathPts.length >= 2) {
+              ctx.save();
+
+              // Wide translucent corridor glow
+              ctx.beginPath();
+              ctx.moveTo(pathPts[0].x, pathPts[0].y);
+              for (let pIdx = 1; pIdx < pathPts.length; pIdx++) {
+                ctx.lineTo(pathPts[pIdx].x, pathPts[pIdx].y);
+              }
+              ctx.strokeStyle = glowColor;
+              ctx.lineWidth = Math.max(8, Math.min(22, 10 / mPerPx));
+              ctx.lineCap = 'round';
+              ctx.lineJoin = 'round';
+              ctx.stroke();
+
+              // Inner animated marching dashed emergency route
+              ctx.beginPath();
+              ctx.moveTo(pathPts[0].x, pathPts[0].y);
+              for (let pIdx = 1; pIdx < pathPts.length; pIdx++) {
+                ctx.lineTo(pathPts[pIdx].x, pathPts[pIdx].y);
+              }
+              ctx.strokeStyle = strokeColor;
+              ctx.lineWidth = Math.max(3.5, Math.min(8.5, 4.5 / mPerPx));
+              ctx.setLineDash([14, 10]);
+              ctx.lineDashOffset = -dashPhase;
+              ctx.shadowColor = strokeColor;
+              ctx.shadowBlur = 10;
+              ctx.stroke();
+              ctx.setLineDash([]);
+              ctx.shadowBlur = 0;
+              ctx.restore();
+            }
+
+            // Destination Hospital Beacon & ETA Pin
+            if (v.route && v.route.length > 0) {
+              const destNodeId = v.route[v.route.length - 1];
+              const destNode = activeEngine.graph.nodes.get(destNodeId);
+              if (destNode && destNode.lng && destNode.lat) {
+                const destP = map.project([destNode.lng, destNode.lat]);
+                ctx.save();
+
+                // Pulsing radar ripple ring
+                const pulseR = 12 + ((Math.sin(now / 200) + 1) * 7);
+                ctx.strokeStyle = '#FF1744';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(destP.x, destP.y, pulseR, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Hospital circular pin
+                ctx.fillStyle = '#FF1744';
+                ctx.beginPath();
+                ctx.arc(destP.x, destP.y, 11, 0, Math.PI * 2);
+                ctx.fill();
+
+                // White cross (+)
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(destP.x - 2, destP.y - 6, 4, 12);
+                ctx.fillRect(destP.x - 6, destP.y - 2, 12, 4);
+
+                // ETA Badge
+                const distRemainingM = Math.max(50, (v.route.length - 1 - v.routeIndex) * 160 + (1 - v.segmentProgress) * 160);
+                const speedMps = Math.max(5, (v.speed / 1.13) || 12);
+                const etaSec = Math.round(distRemainingM / speedMps);
+                const etaMin = (etaSec / 60).toFixed(1);
+                const etaText = `🏥 HOSPITAL ETA: ~${etaMin}m`;
+
+                ctx.font = 'bold 10.5px "DM Mono", monospace';
+                const textW = ctx.measureText(etaText).width;
+                const pillW = textW + 16;
+                const pillH = 22;
+                const pillX = destP.x + 16;
+                const pillY = destP.y - 11;
+
+                // Glass backdrop
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+                ctx.strokeStyle = '#FF1744';
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                ctx.roundRect(pillX, pillY, pillW, pillH, 5);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillText(etaText, pillX + 8, pillY + 15);
+                ctx.restore();
+              }
+            }
+
+            // Visible ambulance siren beacon ring around vehicle across all zoom levels
+            ctx.save();
+            const beaconR = Math.max(9, Math.min(22, 10 / mPerPx)) + ((Math.sin(now / 110) + 1) * 4);
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.arc(vPos.x, vPos.y, beaconR, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
+
+        // -------------------------------------------------------------
         // 2. Level of Detail (LOD) & Viewport Culling for Vehicles
         // -------------------------------------------------------------
         if (activeEngine.vehicles) {
@@ -324,13 +468,20 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
 
           // Macro Zoom (zoom < 15.2): Super-fast batched micro-commuter flow
           if (zoom < 15.2) {
-            ctx.fillStyle = isNight ? '#FFE082' : '#3D9EFF';
             for (const v of activeEngine.vehicles) {
               if (!v.alive || !v.lng || !v.lat) continue;
-              // Viewport Culling: Skip immediately if outside current camera frame
               if (v.lng < minLng || v.lng > maxLng || v.lat < minLat || v.lat > maxLat) continue;
               const p = map.project([v.lng, v.lat]);
-              ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
+              if (v.type === 'emergency') {
+                const strobe = Math.floor(now / 140) % 2 === 0;
+                ctx.fillStyle = strobe ? '#FF1744' : '#2979FF';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 4.5, 0, Math.PI * 2);
+                ctx.fill();
+              } else {
+                ctx.fillStyle = isNight ? '#FFE082' : '#3D9EFF';
+                ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
+              }
             }
           } else if (zoom < 16.8) {
             // Medium Zoom (15.2 <= zoom < 16.8): Streamlined commuter capsules
@@ -344,16 +495,23 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
 
               const screenBearing = v.bearingDeg - mapBearing;
               const rotRad = (screenBearing * Math.PI) / 180;
-              const lenPx = v.type === 'bus' ? 10 : (v.type === 'motorcycle' ? 4 : 6.5);
-              const widPx = v.type === 'motorcycle' ? 2 : 3.2;
+              const lenPx = v.type === 'bus' ? 10 : (v.type === 'motorcycle' ? 4 : (v.type === 'emergency' ? 8.5 : 6.5));
+              const widPx = v.type === 'motorcycle' ? 2 : (v.type === 'emergency' ? 4.0 : 3.2);
 
               ctx.save();
               ctx.translate(p.x, p.y);
               ctx.rotate(rotRad);
-              ctx.fillStyle = v.color || '#3D9EFF';
+              ctx.fillStyle = v.type === 'emergency' ? '#FFFFFF' : (v.color || '#3D9EFF');
               ctx.beginPath();
               ctx.roundRect(-widPx / 2, -lenPx / 2, widPx, lenPx, 1.5);
               ctx.fill();
+
+              if (v.type === 'emergency') {
+                const strobe = Math.floor(now / 140) % 2 === 0;
+                ctx.fillStyle = strobe ? '#FF1744' : '#2979FF';
+                ctx.fillRect(-widPx * 0.4, -1, widPx * 0.8, 2);
+              }
+
               ctx.restore();
             }
           } else {
@@ -474,6 +632,38 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
       essential: true,
     });
   }, []);
+
+  const trackAmbulance = useCallback(() => {
+    if (!mapRef.current || !engine) return;
+    let amb = engine.vehicles.find(v => v.alive && v.type === 'emergency');
+    if (!amb) {
+      if (engine.spawnAmbulance) {
+        engine.spawnAmbulance();
+      }
+      setTimeout(() => {
+        amb = engine.vehicles.find(v => v.alive && v.type === 'emergency');
+        if (amb && amb.lng && amb.lat) {
+          mapRef.current.flyTo({
+            center: [amb.lng, amb.lat],
+            zoom: 18.2,
+            pitch: 35,
+            duration: 1500,
+            essential: true,
+          });
+        }
+      }, 300);
+      return;
+    }
+    if (amb && amb.lng && amb.lat) {
+      mapRef.current.flyTo({
+        center: [amb.lng, amb.lat],
+        zoom: 18.2,
+        pitch: 35,
+        duration: 1500,
+        essential: true,
+      });
+    }
+  }, [engine]);
 
   const toggle3D = useCallback(() => {
     if (!mapRef.current) return;
@@ -646,6 +836,36 @@ export default function MapLibreSimulationViewer({ engine, onSelectIntersection 
               {p.name}
             </button>
           ))}
+
+          <div style={{ width: 1, height: 14, background: 'rgba(255, 255, 255, 0.15)', margin: '0 2px' }} />
+
+          <button
+            onClick={trackAmbulance}
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              padding: '2px 8px',
+              borderRadius: 4,
+              border: '1px solid rgba(255, 59, 92, 0.45)',
+              background: 'rgba(255, 59, 92, 0.15)',
+              color: '#FF3B5C',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              transition: 'all 0.15s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 59, 92, 0.3)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 59, 92, 0.15)';
+            }}
+            title="Focus camera on active emergency ambulance & siren corridor"
+          >
+            <span>🚑</span>
+            <span>Track Ambulance</span>
+          </button>
         </div>
       </div>
     </div>

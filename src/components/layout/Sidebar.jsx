@@ -27,7 +27,7 @@ const OVERLAY_OPTIONS = [
 
 export default function Sidebar({
   setSimSpeed, setSpawnRate, setWeather, setTimeOfDay, setTimeLocked,
-  changeScenario, triggerAccident, setOverlay, togglePause, restartSim,
+  changeScenario, triggerAccident, spawnAmbulance, setOverlay, togglePause, restartSim,
 }) {
   const simSpeed = useSimStore(s => s.simSpeed);
   const weather = useSimStore(s => s.weather);
@@ -254,6 +254,18 @@ export default function Sidebar({
           onClick={() => triggerAccident('major')}>
           Trigger Incident
         </button>
+        {spawnAmbulance && (
+          <button className="scenario-btn" style={{
+            marginTop: 4,
+            background: 'rgba(255, 59, 92, 0.15)',
+            borderColor: 'rgba(255, 59, 92, 0.5)',
+            color: '#FF3B5C',
+            fontWeight: 700,
+          }}
+            onClick={() => spawnAmbulance()}>
+            🚑 Dispatch Ambulance
+          </button>
+        )}
       </div>
 
       {/* Section 4: Overlays */}

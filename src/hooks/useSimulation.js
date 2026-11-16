@@ -190,6 +190,12 @@ export function useSimulation() {
     }
   }, []);
 
+  const spawnAmbulance = useCallback(() => {
+    if (engineRef.current) {
+      engineRef.current.spawnAmbulance();
+    }
+  }, []);
+
   const handleCanvasClick = useCallback((e) => {
     if (!engineRef.current || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
@@ -225,6 +231,7 @@ export function useSimulation() {
     setTimeLocked,
     changeScenario,
     triggerAccident,
+    spawnAmbulance,
     handleCanvasClick,
     setOverlay,
     getIntersectionData,

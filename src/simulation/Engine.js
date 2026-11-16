@@ -614,33 +614,43 @@ export class Engine {
     }
   }
 
-  async _spawnOneVehicle() {
+  spawnAmbulance() {
+    return this._spawnOneVehicle('emergency');
+  }
+
+  async _spawnOneVehicle(forcedType = null) {
     if (!this.graph) return;
     const nodes = this.graph.spawnableNodes;
     if (!nodes || nodes.length < 2) return;
 
-    // Pick type based on authentic Bengaluru modal share (IRC / CiSTUP Bengaluru Traffic Survey)
-    const rType = Math.random();
-    let type = 'motorcycle';
-    if (rType < 0.60) type = 'motorcycle';     // 60% Two-Wheelers (scooters, bikes)
-    else if (rType < 0.80) type = 'car';        // 20% Private Cars & App Cabs (Ola/Uber)
-    else if (rType < 0.91) type = 'rickshaw';   // 11% Auto-Rickshaws
-    else if (rType < 0.955) type = 'bus';       // 4.5% BMTC City Buses
-    else if (rType < 0.995) type = 'truck';     // 4.0% Commercial Freight / Delivery
-    else type = 'emergency';                    // 0.5% Emergency Ambulances
+    let activeAmbulances = 0;
+    for (let i = 0; i < this.vehicles.length; i++) {
+      if (this.vehicles[i].alive && this.vehicles[i].type === 'emergency') activeAmbulances++;
+    }
 
-    // Limit active ambulances to max 2 across the entire city to prevent cascade preemption
-    if (type === 'emergency') {
-      let activeAmbulances = 0;
-      for (let i = 0; i < this.vehicles.length; i++) {
-        if (this.vehicles[i].alive && this.vehicles[i].type === 'emergency') activeAmbulances++;
-      }
-      if (activeAmbulances >= 2) {
+    let type;
+    if (forcedType) {
+      type = forcedType;
+    } else {
+      // Pick type based on authentic Bengaluru modal share (IRC / CiSTUP Bengaluru Traffic Survey)
+      const rType = Math.random();
+      // Ensure there is consistently at least 1 active emergency ambulance in circulation
+      if (activeAmbulances === 0 && Math.random() < 0.15) {
+        type = 'emergency';
+      } else if (rType < 0.60) type = 'motorcycle';     // 60% Two-Wheelers (scooters, bikes)
+      else if (rType < 0.80) type = 'car';        // 20% Private Cars & App Cabs (Ola/Uber)
+      else if (rType < 0.91) type = 'rickshaw';   // 11% Auto-Rickshaws
+      else if (rType < 0.955) type = 'bus';       // 4.5% BMTC City Buses
+      else if (rType < 0.995) type = 'truck';     // 4.0% Commercial Freight / Delivery
+      else type = 'emergency';                    // 0.5% Emergency Ambulances
+
+      // Limit active ambulances to max 2 across the entire city to prevent cascade preemption
+      if (type === 'emergency' && activeAmbulances >= 2) {
         type = 'car';
       }
     }
 
-    const isHeavyTransit = (type === 'bus' || type === 'truck');
+    const isHeavyTransit = (type === 'bus' || type === 'truck' || type === 'emergency');
 
     let route = null;
     let origin = null;

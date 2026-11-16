@@ -7,7 +7,7 @@ export const HYSTERESIS_MARGIN = 0.75; // Q-margin required for switch
  * Vetoes jittery, un-warranted, or unsafe actions.
  */
 export function safeExecuteRLAction(int, actionName, executeFn, qValues = null) {
-  const tl = int.trafficLight;
+  const tl = int?.trafficLight;
   if (!tl) return { executed: 'KEEP_PHASE', vetoed: actionName, reason: 'Unsignalized node' };
   const currentIsNS = tl.currentPhase === 'NS_GREEN';
   const timeInPhase = tl.timeInPhase;

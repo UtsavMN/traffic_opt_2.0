@@ -227,32 +227,35 @@ export class Engine {
       if (roadNames.size < 2 && allNeighbors.size === 3) continue;
 
       // C. 4-way crossroad junctions:
-      // Any surface 4-way or 5-way crossroad connecting named streets or collectors/arterials/main roads warrants signals!
-      const isMajor4Way = allNeighbors.size >= 4 && (isArterial || isMain || isCollector || roadNames.size >= 2);
+      // Any surface 4-way or 5-way crossroad has intersecting perpendicular vehicular flows requiring signal coordination
+      const is4Way = allNeighbors.size >= 4;
+      const isMajor4Way = is4Way;
 
       // D. 3-way T-junctions:
-      // Only major arterial intersections or busy commercial main intersections warrant automated signals.
-      // Minor side-streets, residential connections, and collector side-spurs use stop/give-way priority.
-      const isMajor3Way = allNeighbors.size === 3 && (isArterial || (isMain && roadNames.size >= 2));
+      // Major arterial, commercial main, or collector crossroads warrant automated signals.
+      // Minor dead-end gully spuds use give-way priority.
+      const isMajor3Way = allNeighbors.size === 3 && (isArterial || isMain || (isCollector && roadNames.size >= 2));
 
       if (!isMajor4Way && !isMajor3Way) continue;
 
-      // Priority score based on real mobility hierarchy
-      const score = allNeighbors.size * 25 + (isArterial ? 60 : 0) + (isMain ? 35 : 0) + (isCollector ? 15 : 0) + (roadNames.size * 10);
-      candidates.push({ id, node, score, x: node.x, y: node.y });
+      // Priority score based on real mobility hierarchy and crossroad complexity
+      const score = (is4Way ? 80 : 0) + allNeighbors.size * 25 + (isArterial ? 60 : 0) + (isMain ? 35 : 0) + (isCollector ? 20 : 0) + (roadNames.size * 15);
+      candidates.push({ id, node, score, x: node.x, y: node.y, is4Way });
     }
 
     candidates.sort((a, b) => b.score - a.score);
 
-    // Corridor spacing: 85px (~95-100m) ensures realistic urban spacing and prevents adjacent overlapping signals
+    // Adaptive corridor spacing: 50px (~55m) for 4-way crossroads, 70px (~80m) for 3-way T-junctions
+    // Prevents redundant adjacent T-junction signals while ensuring all authentic crossroads are signalized
     const signalizedIds = new Set();
-    const minSpacingSq = 85 * 85;
     for (const c of candidates) {
       let tooClose = false;
+      const reqSpacing = c.is4Way ? 50 : 70;
+      const reqSpacingSq = reqSpacing * reqSpacing;
       for (const sId of signalizedIds) {
         const sNode = graph.nodes.get(sId);
         const dx = c.x - sNode.x, dy = c.y - sNode.y;
-        if (dx * dx + dy * dy < minSpacingSq) {
+        if (dx * dx + dy * dy < reqSpacingSq) {
           tooClose = true;
           break;
         }

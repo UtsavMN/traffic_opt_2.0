@@ -320,24 +320,40 @@ export class Engine {
 
   _indexDistricts(graph) {
     this.districts = {
-      cantonment: { name: 'Cantonment & Shivaji Nagar Hub', nodes: [] },
-      benson_town: { name: 'Benson Town & Richards Town Layout', nodes: [] },
-      frazer_town: { name: 'Frazer Town & Coles Commercial Belt', nodes: [] },
-      lingarajapuram: { name: 'Lingarajapuram Flyover & Hennur Corridor', nodes: [] },
-      gateways: { name: 'Bengaluru Outer Arterial Gateway', nodes: [] }
+      cantonment: { name: 'Cantonment & Shivaji Nagar Hub', nodes: [], corridorNodes: [] },
+      benson_town: { name: 'Benson Town & Richards Town Layout', nodes: [], corridorNodes: [] },
+      frazer_town: { name: 'Frazer Town & Coles Commercial Belt', nodes: [], corridorNodes: [] },
+      lingarajapuram: { name: 'Lingarajapuram Flyover & Hennur Corridor', nodes: [], corridorNodes: [] },
+      gateways: { name: 'Bengaluru Outer Arterial Gateway', nodes: [], corridorNodes: [] }
     };
     const spawnable = graph.spawnableNodes || Array.from(graph.nodes.values());
     for (const node of spawnable) {
+      // Determine if node sits on an arterial / collector transit corridor
+      let isCorridor = false;
+      for (const [, edge] of graph.edges) {
+        if (edge.from === node.id || edge.to === node.id) {
+          if (edge.type === 'primary' || edge.type === 'trunk' || edge.type === 'secondary' || edge.type === 'tertiary') {
+            isCorridor = true;
+            break;
+          }
+        }
+      }
+
+      let targetDistrict;
       if (node.x < 450 || node.x > 3100 || node.y < 800 || node.y > 2800) {
-        this.districts.gateways.nodes.push(node);
+        targetDistrict = this.districts.gateways;
       } else if (node.x < 1800 && node.y >= 1800) {
-        this.districts.cantonment.nodes.push(node);
+        targetDistrict = this.districts.cantonment;
       } else if (node.x < 1800 && node.y < 1800) {
-        this.districts.benson_town.nodes.push(node);
+        targetDistrict = this.districts.benson_town;
       } else if (node.x >= 1800 && node.y >= 1800) {
-        this.districts.frazer_town.nodes.push(node);
+        targetDistrict = this.districts.frazer_town;
       } else {
-        this.districts.lingarajapuram.nodes.push(node);
+        targetDistrict = this.districts.lingarajapuram;
+      }
+      targetDistrict.nodes.push(node);
+      if (isCorridor) {
+        targetDistrict.corridorNodes.push(node);
       }
     }
   }
@@ -587,12 +603,27 @@ export class Engine {
     const nodes = this.graph.spawnableNodes;
     if (!nodes || nodes.length < 2) return;
 
+    // Pick type based on authentic Bengaluru modal share (IRC / CiSTUP Bengaluru Traffic Survey)
+    const rType = Math.random();
+    let type = 'motorcycle';
+    if (rType < 0.60) type = 'motorcycle';     // 60% Two-Wheelers (scooters, bikes)
+    else if (rType < 0.80) type = 'car';        // 20% Private Cars & App Cabs (Ola/Uber)
+    else if (rType < 0.91) type = 'rickshaw';   // 11% Auto-Rickshaws
+    else if (rType < 0.955) type = 'bus';       // 4.5% BMTC City Buses
+    else if (rType < 0.995) type = 'truck';     // 4.0% Commercial Freight / Delivery
+    else type = 'emergency';                    // 0.5% Emergency Ambulances
+
+    const isHeavyTransit = (type === 'bus' || type === 'truck');
+
     let route = null;
     let origin = null;
     let originName = 'Bengaluru Origin';
     let destName = 'Bengaluru Destination';
 
     const districtKeys = this.districts ? Object.keys(this.districts) : [];
+    const hour = this.timeOfDay ? this.timeOfDay.hour : 10;
+    const isMorningPeak = hour >= 7.5 && hour <= 11.5;
+    const isEveningPeak = hour >= 16.5 && hour <= 20.5;
 
     // Try up to 2 attempts to pick origin and destination with a valid route (prevents frame drops)
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -600,23 +631,41 @@ export class Engine {
       let destNode = null;
 
       if (districtKeys.length > 0) {
-        // 65% inter-district commuter trips, 35% intra-district local layout trips
-        const isInterDistrict = Math.random() < 0.65;
-        const origKey = districtKeys[Math.floor(Math.random() * districtKeys.length)];
-        let destKey = origKey;
-        if (isInterDistrict) {
-          const others = districtKeys.filter(k => k !== origKey && this.districts[k].nodes.length > 0);
-          if (others.length > 0) {
-            destKey = others[Math.floor(Math.random() * others.length)];
-          }
+        // 70% corridor/commuter trips, 30% local layout trips (buses/trucks are 100% corridor)
+        const isCorridorTrip = isHeavyTransit || Math.random() < 0.70;
+        
+        let origKey, destKey;
+        if (isMorningPeak) {
+          // Morning peak: outer gateways and residential zones funnel toward commercial hubs
+          const outerPool = ['gateways', 'benson_town', 'lingarajapuram'];
+          const hubPool = ['cantonment', 'frazer_town'];
+          origKey = outerPool[Math.floor(Math.random() * outerPool.length)];
+          destKey = hubPool[Math.floor(Math.random() * hubPool.length)];
+        } else if (isEveningPeak) {
+          // Evening peak: commercial hubs funnel toward outer gateways and residential zones
+          const hubPool = ['cantonment', 'frazer_town'];
+          const outerPool = ['gateways', 'benson_town', 'lingarajapuram'];
+          origKey = hubPool[Math.floor(Math.random() * hubPool.length)];
+          destKey = outerPool[Math.floor(Math.random() * outerPool.length)];
+        } else {
+          // Off-peak: natural inter-district and intra-district distribution
+          origKey = districtKeys[Math.floor(Math.random() * districtKeys.length)];
+          destKey = districtKeys[Math.floor(Math.random() * districtKeys.length)];
         }
+
         const oDistrict = this.districts[origKey];
         const dDistrict = this.districts[destKey];
-        if (oDistrict && dDistrict && oDistrict.nodes.length > 0 && dDistrict.nodes.length > 0) {
-          originNode = oDistrict.nodes[Math.floor(Math.random() * oDistrict.nodes.length)];
-          destNode = dDistrict.nodes[Math.floor(Math.random() * dDistrict.nodes.length)];
-          originName = oDistrict.name;
-          destName = dDistrict.name;
+        if (oDistrict && dDistrict) {
+          // Prefer corridor nodes for commuter / heavy transit flow
+          const oPool = (isCorridorTrip && oDistrict.corridorNodes?.length > 0) ? oDistrict.corridorNodes : oDistrict.nodes;
+          const dPool = (isCorridorTrip && dDistrict.corridorNodes?.length > 0) ? dDistrict.corridorNodes : dDistrict.nodes;
+
+          if (oPool.length > 0 && dPool.length > 0) {
+            originNode = oPool[Math.floor(Math.random() * oPool.length)];
+            destNode = dPool[Math.floor(Math.random() * dPool.length)];
+            originName = oDistrict.name;
+            destName = dDistrict.name;
+          }
         }
       }
 
@@ -647,16 +696,6 @@ export class Engine {
     }
 
     if (!route || !origin) return;
-
-    // Pick type based on real-world Bengaluru traffic survey distribution (adjusted for emergency visibility)
-    const r = Math.random();
-    let type = 'car';
-    if (r < 0.70) type = 'motorcycle';     // 70% Two-Wheelers
-    else if (r < 0.85) type = 'car';        // 15% Cars
-    else if (r < 0.90) type = 'rickshaw';   // 5% Auto-rickshaws
-    else if (r < 0.95) type = 'bus';        // 5% Buses
-    else if (r < 0.995) type = 'truck';     // 4.5% Trucks
-    else type = 'emergency';                // 0.5% Emergency vehicles (Ambulances)
 
     const v = this.vehiclePool.acquire(type, route, this.graph);
     if (!v) { return; }
@@ -790,7 +829,7 @@ export class Engine {
     }
     const avgSpeedPxS = count > 0 ? totalSpeed / count : 0;
     const avgSpeedKmh = (avgSpeedPxS / CANVAS_SCALE) * 3.6;
-    const freeFlowSpeedKmh = 40.0;
+    const freeFlowSpeedKmh = 46.0;
     const congestionLevel = Math.max(0, Math.min(100, (1.0 - (avgSpeedKmh / freeFlowSpeedKmh)) * 100));
 
     let totalCurrentWait = 0;

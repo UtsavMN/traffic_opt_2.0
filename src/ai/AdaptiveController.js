@@ -148,14 +148,21 @@ export class AdaptiveController {
       return { model: 'ADAPTIVE', reasonDetail: 'empty approach clearance' };
     }
 
+    // Uncertainty Gating / Anti-Overfitting Safeguard:
+    // When the Q-difference is ambiguous (|Q1 - Q0| < 0.60) and there is no massive surge,
+    // gracefully route to provably stable MaxPressure to prevent brittle policy failures.
+    if (qAdvantage < 0.60 && totalQueue < 8 && !int.platoonApproaching) {
+      return { model: 'ADAPTIVE', reasonDetail: `entropy safeguard (ambiguous ΔQ=${qAdvantage.toFixed(2)})` };
+    }
+
     // High corridor demand / wave conditions trigger Sanchar DQN:
-    // 1. Total queues building up (>= 6)
-    // 2. Opposing queue high (>= 5)
-    // 3. Arterial corridor wave / incoming platoon (>= 0.35 or active platoon)
-    // 4. Strong neural policy advantage (|ΔQ| >= 1.0 with active vehicles)
-    const isCorridorCongested = totalQueue >= 6 || opposingQueue >= 5;
-    const isArterialWave = neighborPressure >= 0.35 || (int.platoonApproaching && int.platoonCount >= 3);
-    const isHighConfidenceRL = qAdvantage >= 1.0 && totalQueue >= 3;
+    // 1. Total queues building up (>= 5)
+    // 2. Opposing queue high (>= 4)
+    // 3. Arterial corridor wave / incoming platoon (>= 0.30 or active platoon)
+    // 4. Strong neural policy advantage (|ΔQ| >= 0.85 with active vehicles)
+    const isCorridorCongested = totalQueue >= 5 || opposingQueue >= 4;
+    const isArterialWave = neighborPressure >= 0.30 || (int.platoonApproaching && int.platoonCount >= 3);
+    const isHighConfidenceRL = qAdvantage >= 0.85 && totalQueue >= 3;
 
     if (isArterialWave || isCorridorCongested || isHighConfidenceRL) {
       const reasonDetail = int.platoonApproaching
@@ -299,7 +306,14 @@ export class AdaptiveController {
     // ── PATH A: Sanchar Deep Q-Network (RL) ──
     if (selectedModel === 'DQN' && this.coordinator && this.coordinator.rlAgent) {
       const rlAgent = this.coordinator.rlAgent;
-      const actionIdx = rlAgent._selectAction(rlState);
+      let actionIdx = rlAgent._selectAction(rlState);
+
+      // Hysteresis Margin: SWITCH must beat KEEP by at least 0.75 Q-points
+      // to eliminate boundary jitter and overfitted flickering
+      if (actionIdx === 1 && rlQValues && (rlQValues[1] - rlQValues[0] < 0.75)) {
+        actionIdx = 0; // Hysteresis hold
+      }
+
       const actionName = ACTIONS[actionIdx];
 
       // Execute chosen action safely through compliance logic layer

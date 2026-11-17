@@ -11,13 +11,13 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-from sanchar.config import STATE_DIM, ACTION_DIM, HIDDEN_DIM_1, HIDDEN_DIM_2
+from sanchar.config import STATE_DIM, ACTION_DIM, HIDDEN_DIM_1, HIDDEN_DIM_2, DROPOUT_RATE
 
 
 class SancharMLPQNetwork(nn.Module):
     """
-    3-layer Deep Q-Network for traffic signal control.
-    State (10) -> Dense(64, ReLU) -> Dense(32, ReLU) -> Q-Values(4)
+    3-layer Deep Q-Network for traffic signal control with anti-overfitting regularization.
+    State (10) -> Dense(64, ReLU) -> Dropout(0.08) -> Dense(32, ReLU) -> Dropout(0.08) -> Q-Values(2)
     """
 
     def __init__(
@@ -26,6 +26,7 @@ class SancharMLPQNetwork(nn.Module):
         action_dim: int = ACTION_DIM,
         hidden1: int = HIDDEN_DIM_1,
         hidden2: int = HIDDEN_DIM_2,
+        dropout_rate: float = DROPOUT_RATE,
     ):
         super().__init__()
         self.state_dim = state_dim
@@ -34,17 +35,24 @@ class SancharMLPQNetwork(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(state_dim, hidden1),
             nn.ReLU(),
+            nn.Dropout(p=dropout_rate),
             nn.Linear(hidden1, hidden2),
             nn.ReLU(),
+            nn.Dropout(p=dropout_rate),
             nn.Linear(hidden2, action_dim),
         )
 
         self._init_weights()
 
     def _init_weights(self):
-        for m in self.modules():
+        for name, m in self.named_modules():
             if isinstance(m, nn.Linear):
-                nn.init.orthogonal_(m.weight, gain=np.sqrt(2))
+                # Hidden layers use He/Orthogonal initialization for ReLU
+                # Final output layer uses small gain so Q-values start centered around zero
+                if m.out_features == self.action_dim:
+                    nn.init.orthogonal_(m.weight, gain=0.1)
+                else:
+                    nn.init.orthogonal_(m.weight, gain=np.sqrt(2))
                 nn.init.constant_(m.bias, 0.0)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

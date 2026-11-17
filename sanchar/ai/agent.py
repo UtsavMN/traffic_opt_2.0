@@ -17,6 +17,8 @@ from sanchar.config import (
     ACTION_DIM,
     GAMMA,
     LR,
+    WEIGHT_DECAY,
+    TAU,
     BATCH_SIZE,
     REPLAY_CAPACITY,
     EPS_START,
@@ -66,6 +68,8 @@ class DQNAgent:
         state_dim: int = STATE_DIM,
         action_dim: int = ACTION_DIM,
         lr: float = LR,
+        weight_decay: float = WEIGHT_DECAY,
+        tau: float = TAU,
         gamma: float = GAMMA,
         epsilon: float = EPS_START,
         epsilon_min: float = EPS_MIN,
@@ -76,6 +80,7 @@ class DQNAgent:
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.gamma = gamma
+        self.tau = tau
         self.epsilon = epsilon
         self.epsilon_min = epsilon_min
         self.epsilon_decay = epsilon_decay
@@ -89,7 +94,12 @@ class DQNAgent:
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
 
-        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=lr)
+        # Regularized Adam optimizer with weight decay to prevent overfitting
+        self.optimizer = optim.Adam(
+            self.policy_net.parameters(),
+            lr=lr,
+            weight_decay=weight_decay,
+        )
         self.loss_fn = nn.SmoothL1Loss()  # Huber loss for robustness against outliers
         self.replay = ReplayBuffer(replay_capacity)
 
@@ -141,8 +151,13 @@ class DQNAgent:
         s2 = s2.to(self.device)
         done = done.to(self.device)
 
+        # Anti-overfitting observation noise (simulates continuous sensor variance)
+        noise = torch.randn_like(s) * 0.015
+        noise[:, [5, 6, 9]] = 0.0  # Preserve discrete indicator flags
+        s_aug = torch.clamp(s + noise, 0.0, 1.0)
+
         # Current Q-values
-        curr_q = self.policy_net(s).gather(1, a.unsqueeze(1)).squeeze(1)
+        curr_q = self.policy_net(s_aug).gather(1, a.unsqueeze(1)).squeeze(1)
 
         # Double-DQN Target calculation:
         # Best action selected by online policy_net, evaluated by target_net
@@ -159,11 +174,20 @@ class DQNAgent:
         nn.utils.clip_grad_norm_(self.policy_net.parameters(), max_norm=1.0)
         self.optimizer.step()
 
+        # Polyak soft target network update (smooth, oscillation-free tracking)
+        self.update_target_network_soft(self.tau)
+
         self.training_steps += 1
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
         return float(loss.item())
 
+    def update_target_network_soft(self, tau: float):
+        """Polyak soft update: target = tau * policy + (1 - tau) * target"""
+        for target_param, policy_param in zip(self.target_net.parameters(), self.policy_net.parameters()):
+            target_param.data.copy_(tau * policy_param.data + (1.0 - tau) * target_param.data)
+
     def update_target_network(self):
+        """Hard synchronization"""
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
     def get_stats(self) -> Dict[str, Any]:

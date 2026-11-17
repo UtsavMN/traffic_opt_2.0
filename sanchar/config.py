@@ -37,20 +37,23 @@ AI_COOLDOWN_S: float = 3.0       # Seconds of mandatory cooldown after a phase s
 
 # Queue & Sensor Normalization
 MAX_QUEUE_NORMALIZATION: float = 40.0  # (20 max queue per lane * 2 lanes)
-STARVATION_THRESHOLD_S: float = 30.0   # Red duration after which starvation penalty activates
+STARVATION_THRESHOLD_S: float = 25.0   # Red duration after which starvation penalty activates
 
 # Neural Network Architecture
 STATE_DIM: int = 10
 ACTION_DIM: int = len(ACTIONS)
 HIDDEN_DIM_1: int = 64
 HIDDEN_DIM_2: int = 32
+DROPOUT_RATE: float = 0.08
 
-# RL Hyperparameters
+# RL Hyperparameters & Regularization (Anti-Overfitting)
 GAMMA: float = 0.95
-LR: float = 0.001
+LR: float = 0.0005                 # Tuned Adam learning rate for smooth convergence
+WEIGHT_DECAY: float = 1e-4        # L2 weight regularization preventing over-parameterized weight spikes
+TAU: float = 0.005                # Soft Polyak target network update rate (1-tau)*target + tau*policy
 BATCH_SIZE: int = 64
-REPLAY_CAPACITY: int = 50_000
+REPLAY_CAPACITY: int = 60_000
 EPS_START: float = 1.0
-EPS_MIN: float = 0.05
-EPS_DECAY: float = 0.9992
-TARGET_UPDATE_FREQ: int = 10   # Episodes between target network sync
+EPS_MIN: float = 0.03
+EPS_DECAY: float = 0.9994
+TARGET_UPDATE_FREQ: int = 5       # Deprecated by soft updates, kept for backwards compatibility

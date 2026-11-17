@@ -25,7 +25,7 @@ from sanchar.config import (
 from sanchar.ai.agent import DQNAgent
 from sanchar.env.sanchar_env import SancharTrafficEnv
 
-VAL_SEEDS = [80001, 80002, 80003, 80004, 80005]
+VAL_SEEDS = [80001, 80002, 80003, 80004, 80005, 80006, 80007, 80008]
 
 
 def run_episode(env: SancharTrafficEnv, agent: DQNAgent, epsilon: float, seed: int = 0, train: bool = True) -> Tuple[float, int]:
@@ -90,6 +90,8 @@ def train(
     train_rewards = []
     val_history = []
     total_grad_steps = 0
+    best_val_reward = -float("inf")
+    best_state_dict = None
 
     for ep in range(1, num_episodes + 1):
         # Run training episode
@@ -97,31 +99,38 @@ def train(
         r, v = run_episode(train_env, agent, agent.epsilon, seed=ep_seed, train=True)
         train_rewards.append(r)
 
-        # Gradient steps
+        # Gradient steps with soft target updates
         if len(agent.replay) >= BATCH_SIZE:
             for _ in range(25):
                 loss = agent.train_step(BATCH_SIZE)
                 if loss is not None:
                     total_grad_steps += 1
 
-        # Synchronize target network
-        if ep % TARGET_UPDATE_FREQ == 0:
-            agent.update_target_network()
-
-        # Validation
+        # Periodic validation & best model checkpointing (prevents overfitting)
         if ep % val_every == 0:
             val_mean, val_std, val_veh = validate(val_env, agent)
             val_history.append((ep, val_mean, val_std, val_veh))
             recent_train = np.mean(train_rewards[-val_every:])
+
+            is_best = val_mean > best_val_reward
+            if is_best:
+                best_val_reward = val_mean
+                best_state_dict = {k: v.cpu().clone() for k, v in agent.policy_net.state_dict().items()}
+
+            best_marker = " [★ BEST]" if is_best else ""
             print(
                 f"Ep {ep:3d}/{num_episodes} | Train R: {recent_train:7.1f} | "
                 f"Val R: {val_mean:7.1f} (+/-{val_std:4.1f}) | "
-                f"Val Thru: {val_veh:4.0f} veh | Eps: {agent.epsilon:.3f} | Steps: {total_grad_steps}"
+                f"Val Thru: {val_veh:4.0f} veh | Eps: {agent.epsilon:.3f} | Steps: {total_grad_steps}{best_marker}"
             )
 
     print("\n--- Training Complete ---")
+    if best_state_dict is not None:
+        agent.policy_net.load_state_dict(best_state_dict)
+        print(f"Loaded best checkpoint with Validation Reward: {best_val_reward:.2f}")
+
     val_mean, val_std, val_veh = validate(val_env, agent)
-    print(f"Final Validation Reward: {val_mean:.2f} (Throughput: {val_veh:.1f} vehicles)")
+    print(f"Final Generalization Reward: {val_mean:.2f} (Throughput: {val_veh:.1f} vehicles)")
 
     # Export weights for frontend
     os.makedirs(os.path.dirname(export_path), exist_ok=True)

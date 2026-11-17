@@ -36,10 +36,29 @@ export class StateEncoder {
     const pE = Math.max(0, (est?.E || 0) - avgDownstream);
     const pW = Math.max(0, (est?.W || 0) - avgDownstream);
 
-    // Phase-invariant local state representation
-    const currentIsNS = tl.currentPhase ? tl.currentPhase.includes('NS') : true;
-    const activePressure = currentIsNS ? (pN + pS) : (pE + pW);
-    const opposingPressure = currentIsNS ? (pE + pW) : (pN + pS);
+    // M-Phase Invariant Local State Representation
+    let activePressure = 0;
+    let opposingPressure = 0;
+
+    if (int.approaches && int.approaches.length > 0) {
+      const currentP = tl.currentPhaseIndex || 0;
+      const phaseQueues = new Array(tl.numPhases || 2).fill(0);
+      for (const app of int.approaches) {
+        phaseQueues[app.phaseIndex] = (phaseQueues[app.phaseIndex] || 0) + (app.queue || 0);
+      }
+      const activeQueue = phaseQueues[currentP] || 0;
+      let maxOpposingQueue = 0;
+      for (let p = 0; p < (tl.numPhases || 2); p++) {
+        if (p === currentP) continue;
+        if (phaseQueues[p] > maxOpposingQueue) maxOpposingQueue = phaseQueues[p];
+      }
+      activePressure = Math.max(0, activeQueue - avgDownstream);
+      opposingPressure = Math.max(0, maxOpposingQueue - avgDownstream);
+    } else {
+      const currentIsNS = tl.currentPhase ? tl.currentPhase.includes('NS') : true;
+      activePressure = currentIsNS ? (pN + pS) : (pE + pW);
+      opposingPressure = currentIsNS ? (pE + pW) : (pN + pS);
+    }
     
     const normActive = Math.min(1, activePressure / (maxQ * 2));
     const normOpposing = Math.min(1, opposingPressure / (maxQ * 2));
@@ -73,12 +92,27 @@ export class StateEncoder {
     const avgNeighborActive = signalizedNeighborCount > 0 ? sumNeighborActive / signalizedNeighborCount : 0;
     const avgNeighborOpposing = signalizedNeighborCount > 0 ? sumNeighborOpposing / signalizedNeighborCount : 0;
 
-    // Context features (pure vehicular traffic - pedestrians removed)
-    const pedWaiting = 0.0;
-    const emergency = int.emergencyApproaching ? 1 : 0;
+    // Platoon Green Wave coordination indicator (1.0 = arriving on active green, 0.5 = arriving on competing phase)
+    const platoonWave = (int.platoonApproaching && int.platoonPhaseIndex === tl.currentPhaseIndex)
+      ? 1.0
+      : (int.platoonApproaching ? 0.5 : 0.0);
+
+    const emergency = int.emergencyApproaching ? 1.0 : 0.0;
     const weatherFactor = engine?.weather ? (1 - (engine.weather.speedMult || 1)) : 0;
     const tod = engine?.timeOfDay ? (engine.timeOfDay.normalized || 0) : 0.5;
-    const starvationFlag = ((tl.redDurationNS || 0) > 30 || (tl.redDurationEW || 0) > 30) ? 1 : 0;
+
+    // Multi-phase starvation check: any competing phase waiting > 22 seconds
+    let starvationFlag = 0;
+    if (tl.redDurations && tl.redDurations.length > 0) {
+      for (let p = 0; p < (tl.numPhases || 2); p++) {
+        if (p !== tl.currentPhaseIndex && (tl.redDurations[p] || 0) > 22) {
+          starvationFlag = 1.0;
+          break;
+        }
+      }
+    } else {
+      starvationFlag = ((tl.redDurationNS || 0) > 22 || (tl.redDurationEW || 0) > 22) ? 1.0 : 0.0;
+    }
 
     return new Float32Array([
       normActive,
@@ -86,7 +120,7 @@ export class StateEncoder {
       tip,
       avgNeighborActive,
       avgNeighborOpposing,
-      pedWaiting,
+      platoonWave,
       emergency,
       weatherFactor,
       tod,

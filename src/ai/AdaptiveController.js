@@ -151,18 +151,20 @@ export class AdaptiveController {
     // High corridor demand / wave conditions trigger Sanchar DQN:
     // 1. Total queues building up (>= 6)
     // 2. Opposing queue high (>= 5)
-    // 3. Arterial corridor wave / neighbor pressure (>= 0.35)
+    // 3. Arterial corridor wave / incoming platoon (>= 0.35 or active platoon)
     // 4. Strong neural policy advantage (|ΔQ| >= 1.0 with active vehicles)
     const isCorridorCongested = totalQueue >= 6 || opposingQueue >= 5;
-    const isArterialWave = neighborPressure >= 0.35;
+    const isArterialWave = neighborPressure >= 0.35 || (int.platoonApproaching && int.platoonCount >= 3);
     const isHighConfidenceRL = qAdvantage >= 1.0 && totalQueue >= 3;
 
     if (isArterialWave || isCorridorCongested || isHighConfidenceRL) {
-      const reasonDetail = isArterialWave
-        ? `corridor wave (${(neighborPressure * 100).toFixed(0)}% pressure)`
-        : isCorridorCongested
-          ? `surge demand (${totalQueue} veh)`
-          : `neural policy confidence (ΔQ=${qAdvantage.toFixed(1)})`;
+      const reasonDetail = int.platoonApproaching
+        ? `corridor wave (${int.platoonCount} veh approaching on ${int.platoonEdgeName || 'corridor'})`
+        : isArterialWave
+          ? `corridor wave (${(neighborPressure * 100).toFixed(0)}% pressure)`
+          : isCorridorCongested
+            ? `surge demand (${totalQueue} veh)`
+            : `neural policy confidence (ΔQ=${qAdvantage.toFixed(1)})`;
       return { model: 'DQN', reasonDetail };
     }
 
@@ -194,18 +196,80 @@ export class AdaptiveController {
       };
     }
 
-    // Only evaluate during green phases
-    if (phase !== 'NS_GREEN' && phase !== 'EW_GREEN') return null;
+    // Only evaluate during green phases (all M-phases supported)
+    if (tl.isYellow) return null;
 
     // Wait for minimum green safety clearance before any evaluation
     if (timeInPhase < this.MIN_GREEN) return null;
 
-    const currentIsNS = phase === 'NS_GREEN';
-    const currentQueue = currentIsNS ? nsQ : ewQ;
-    const opposingQueue = currentIsNS ? ewQ : nsQ;
+    const numPhases = tl.numPhases || 2;
+    const currentPhaseIdx = tl.currentPhaseIndex || 0;
+    const currentIsNS = phase.includes('NS');
 
-    // Actuated Zero-Demand Hold Veto: if opposing direction is completely empty, lock current green!
-    if (opposingQueue === 0 && timeInPhase < this.MAX_GREEN) {
+    let currentQueue = 0;
+    let maxOpposingQueue = 0;
+    let totalOpposingQueue = 0;
+    let bestTargetPhaseIdx = (currentPhaseIdx + 1) % numPhases;
+
+    if (int.approaches && int.approaches.length > 0) {
+      const phaseQueues = new Array(numPhases).fill(0);
+      for (const app of int.approaches) {
+        phaseQueues[app.phaseIndex] = (phaseQueues[app.phaseIndex] || 0) + (app.queue || 0);
+      }
+      currentQueue = phaseQueues[currentPhaseIdx] || 0;
+      let bestQ = -1;
+      for (let p = 0; p < numPhases; p++) {
+        if (p === currentPhaseIdx) continue;
+        const q = phaseQueues[p] || 0;
+        totalOpposingQueue += q;
+        if (q > bestQ) {
+          bestQ = q;
+          bestTargetPhaseIdx = p;
+          maxOpposingQueue = q;
+        }
+      }
+    } else {
+      currentQueue = currentIsNS ? nsQ : ewQ;
+      maxOpposingQueue = currentIsNS ? ewQ : nsQ;
+      totalOpposingQueue = maxOpposingQueue;
+      bestTargetPhaseIdx = currentIsNS ? 1 : 0;
+    }
+
+    const getSwitchActionName = (targetIdx) => {
+      if (numPhases === 2) {
+        return targetIdx === 0 ? 'SWITCH_TO_NS' : 'SWITCH_TO_EW';
+      }
+      return `SWITCH_TO_P${targetIdx}`;
+    };
+
+    // ── RULE 0: Arterial Green Wave Platoon Synchronization ──
+    if (int.platoonApproaching) {
+      // Case A: Platoon is arriving on the CURRENT active green phase
+      if (int.platoonPhaseIndex === currentPhaseIdx) {
+        // Hold green to let the platoon ride through uninterrupted without stopping
+        if (int.platoonEta <= 6.5 && timeInPhase < this.MAX_GREEN + 8) {
+          return null; // Continuous green wave progression
+        }
+      } else {
+        // Case B: Platoon is arriving on a COMPETING phase
+        // If current approach is cleared (<= 1 veh) and min green met, switch early!
+        if (currentQueue <= 1 && timeInPhase >= this.MIN_GREEN) {
+          tl.triggerYellow(int.platoonPhaseIndex);
+          const isDynamic = this.mode === 'DYNAMIC_AUTO';
+          const prefix = isDynamic ? `[Auto: Green Wave]` : `[Green Wave]`;
+          return {
+            intersectionId: int.id,
+            action: getSwitchActionName(int.platoonPhaseIndex),
+            reason: `${prefix} Coordinated wave for ${int.platoonCount} veh on ${int.platoonEdgeName} (ETA ${int.platoonEta.toFixed(1)}s)`,
+            time: Date.now(),
+            model: 'GREEN_WAVE'
+          };
+        }
+      }
+    }
+
+    // Actuated Zero-Demand Hold Veto: if all opposing approaches are empty, lock current green!
+    if (totalOpposingQueue === 0 && timeInPhase < this.MAX_GREEN) {
       return null;
     }
 
@@ -242,7 +306,7 @@ export class AdaptiveController {
       const result = safeExecuteRLAction(
         int,
         actionName,
-        this._executeRLAction.bind(this),
+        (i, a) => this._executeRLAction(i, a, bestTargetPhaseIdx),
         Array.from(rlQValues)
       );
 
@@ -255,7 +319,7 @@ export class AdaptiveController {
 
       return {
         intersectionId: int.id,
-        action: result.executed === 'SWITCH_PHASE' ? (currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS') : result.executed,
+        action: result.executed === 'SWITCH_PHASE' ? getSwitchActionName(bestTargetPhaseIdx) : result.executed,
         reason: result.vetoed
           ? `${prefix} ${result.reason} (policy suggested ${result.vetoed})`
           : `${prefix} ${arbitrationDetail ? arbitrationDetail + ' ' : ''}(Q_sw=${rlQValues[1].toFixed(1)}, Q_kp=${rlQValues[0].toFixed(1)})`.trim(),
@@ -269,25 +333,23 @@ export class AdaptiveController {
     const prefix = isDynamic ? `[Auto: Adaptive]` : `[Adaptive]`;
 
     // Rule 1: Switch if current direction is empty AND opposing has vehicles (must respect MIN_GREEN)
-    if (timeInPhase >= this.MIN_GREEN && currentQueue === 0 && opposingQueue > 0) {
-      if (typeof tl.triggerYellow === 'function') tl.triggerYellow();
-      else tl.forcePhase(currentIsNS ? 1 : 3);
+    if (timeInPhase >= this.MIN_GREEN && currentQueue === 0 && totalOpposingQueue > 0) {
+      tl.triggerYellow(bestTargetPhaseIdx);
       return {
         intersectionId: int.id,
-        action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
-        reason: `${prefix} Empty approach (0) vs opposing (${opposingQueue})`,
+        action: getSwitchActionName(bestTargetPhaseIdx),
+        reason: `${prefix} Cleared current phase (0) -> phase ${bestTargetPhaseIdx} demand (${maxOpposingQueue} veh)`,
         time: Date.now(),
         model: 'ADAPTIVE',
       };
     }
 
     // Rule 1.5: Starvation Guard — If opposing vehicles have been waiting > 18s at this junction, switch (must respect MIN_GREEN)
-    if (timeInPhase >= this.MIN_GREEN && int.maxWait > 18.0 && opposingQueue > 0) {
-      if (typeof tl.triggerYellow === 'function') tl.triggerYellow();
-      else tl.forcePhase(currentIsNS ? 1 : 3);
+    if (timeInPhase >= this.MIN_GREEN && int.maxWait > 18.0 && totalOpposingQueue > 0) {
+      tl.triggerYellow(bestTargetPhaseIdx);
       return {
         intersectionId: int.id,
-        action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
+        action: getSwitchActionName(bestTargetPhaseIdx),
         reason: `${prefix} Starvation guard: Opposing wait ${int.maxWait.toFixed(1)}s > 18s`,
         time: Date.now(),
         model: 'ADAPTIVE',
@@ -296,11 +358,10 @@ export class AdaptiveController {
 
     // Rule 2: Force switch if max green reached (starvation prevention)
     if (timeInPhase >= this.MAX_GREEN) {
-      if (typeof tl.triggerYellow === 'function') tl.triggerYellow();
-      else tl.forcePhase(currentIsNS ? 1 : 3);
+      tl.triggerYellow(bestTargetPhaseIdx);
       return {
         intersectionId: int.id,
-        action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
+        action: getSwitchActionName(bestTargetPhaseIdx),
         reason: `${prefix} Max green (${this.MAX_GREEN}s) ceiling reached`,
         time: Date.now(),
         model: 'ADAPTIVE',
@@ -309,13 +370,12 @@ export class AdaptiveController {
 
     // Rule 3: Significant queue imbalance (must respect MIN_GREEN)
     const dynamicThreshold = Math.max(3, currentQueue * 0.5);
-    if (timeInPhase >= this.MIN_GREEN && opposingQueue > currentQueue + dynamicThreshold) {
-      if (typeof tl.triggerYellow === 'function') tl.triggerYellow();
-      else tl.forcePhase(currentIsNS ? 1 : 3);
+    if (timeInPhase >= this.MIN_GREEN && maxOpposingQueue > currentQueue + dynamicThreshold) {
+      tl.triggerYellow(bestTargetPhaseIdx);
       return {
         intersectionId: int.id,
-        action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
-        reason: `${prefix} Imbalance: Opposing (${opposingQueue}) > Active (${currentQueue})`,
+        action: getSwitchActionName(bestTargetPhaseIdx),
+        reason: `${prefix} Imbalance: Phase ${bestTargetPhaseIdx} (${maxOpposingQueue}) > Active (${currentQueue})`,
         time: Date.now(),
         model: 'ADAPTIVE',
       };
@@ -323,13 +383,12 @@ export class AdaptiveController {
 
     // Rule 4: Ideal green time fulfilled (must respect MIN_GREEN)
     const ideal = Math.max(this.MIN_GREEN, this._idealGreen(currentQueue));
-    if (timeInPhase >= ideal && opposingQueue > 0) {
-      if (typeof tl.triggerYellow === 'function') tl.triggerYellow();
-      else tl.forcePhase(currentIsNS ? 1 : 3);
+    if (timeInPhase >= ideal && totalOpposingQueue > 0) {
+      tl.triggerYellow(bestTargetPhaseIdx);
       return {
         intersectionId: int.id,
-        action: currentIsNS ? 'SWITCH_TO_EW' : 'SWITCH_TO_NS',
-        reason: `${prefix} Ideal green (${ideal.toFixed(1)}s) fulfilled`,
+        action: getSwitchActionName(bestTargetPhaseIdx),
+        reason: `${prefix} Ideal green (${ideal.toFixed(1)}s) fulfilled -> phase ${bestTargetPhaseIdx}`,
         time: Date.now(),
         model: 'ADAPTIVE',
       };
@@ -338,18 +397,13 @@ export class AdaptiveController {
     return null;
   }
 
-  _executeRLAction(int, actionName) {
+  _executeRLAction(int, actionName, targetPhaseIdx = null) {
     const tl = int?.trafficLight;
     if (!tl) return;
-    const currentIsNS = tl.currentPhase === 'NS_GREEN';
 
     switch (actionName) {
       case 'SWITCH_PHASE':
-        if (typeof tl.triggerYellow === 'function') {
-          tl.triggerYellow();
-        } else {
-          tl.forcePhase(currentIsNS ? 1 : 3); // safely transition to yellow (1 for NS, 3 for EW)
-        }
+        tl.triggerYellow(targetPhaseIdx);
         break;
       case 'KEEP_PHASE':
       default:

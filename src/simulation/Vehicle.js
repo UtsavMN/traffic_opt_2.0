@@ -438,8 +438,14 @@ export class Vehicle {
         if (other.segmentProgress > this.segmentProgress) {
           // Check lateral clearance between this vehicle and the other vehicle
           const lateralGap = Math.abs(this.laneOffset - other.laneOffset);
-          // Collision overlap envelope: half-width of this + half-width of other + buffer (0.28m * CANVAS_SCALE)
-          const lateralOverlapThreshold = ((this.width + other.width) * 0.5) + (0.28 * (CANVAS_SCALE || 1));
+          // Heterogeneous Indian traffic lateral filtering:
+          // Two-wheelers and auto-rickshaws filter along lateral gaps past stationary queues to the front stop line
+          const filterBuffer = (this.type === 'motorcycle' && other.speed < 1.5)
+            ? -0.22 * (CANVAS_SCALE || 1)
+            : (this.type === 'rickshaw' && other.speed < 1.5)
+              ? 0.05 * (CANVAS_SCALE || 1)
+              : 0.28 * (CANVAS_SCALE || 1);
+          const lateralOverlapThreshold = Math.max(0.45 * (CANVAS_SCALE || 1), ((this.width + other.width) * 0.5) + filterBuffer);
           
           if (lateralGap < lateralOverlapThreshold) {
             // Longitudinal gap between centers minus both half-lengths

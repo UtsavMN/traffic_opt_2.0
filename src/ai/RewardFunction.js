@@ -50,6 +50,12 @@ export function computeReward(prevState, nextState, action, info) {
     rEmergency = -3.0;
   }
 
-  const totalReward = rPressure + rThroughput + rSwitch + rWait + rEmergency;
+  // 6. Arterial Green Wave Platoon Progression Bonus
+  let rWave = 0.0;
+  if (nextState && nextState[5] > 0.8 && !isSwitch) {
+    rWave = +2.0; // Reward holding green wave for incoming arterial platoons
+  }
+
+  const totalReward = rPressure + rThroughput + rSwitch + rWait + rEmergency + rWave;
   return Math.max(-15.0, Math.min(15.0, totalReward));
 }

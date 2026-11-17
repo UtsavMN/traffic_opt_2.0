@@ -21,6 +21,7 @@ export class TrafficLight {
     this.emergencyOverridePhase = null; // number or null
     this.emergencyOverrideDir = null;   // 'NS' or 'EW' (legacy compatibility)
     this.emergencyTimer = 0;
+    this.targetNextPhase = null;        // Target phase index to open after yellow clearance
 
     // Starvation tracking durations (seconds of red per phase)
     this.redDurations = new Array(this.numPhases).fill(0);
@@ -101,11 +102,20 @@ export class TrafficLight {
 
   advancePhase() {
     const totalSubPhases = this.numPhases * 2;
-    this.phase = (this.phase + 1) % totalSubPhases;
+    if (this.isYellow && this.targetNextPhase !== null && this.targetNextPhase !== undefined) {
+      const targetSubPhase = ((this.targetNextPhase * 2) % totalSubPhases + totalSubPhases) % totalSubPhases;
+      this.phase = targetSubPhase;
+      this.targetNextPhase = null;
+    } else {
+      this.phase = (this.phase + 1) % totalSubPhases;
+    }
     this.timer = 0;
   }
 
-  triggerYellow() {
+  triggerYellow(targetNextPhase = null) {
+    if (targetNextPhase !== null && targetNextPhase !== undefined) {
+      this.targetNextPhase = targetNextPhase;
+    }
     // If currently green (even sub-phase), switch immediately to yellow clearance
     if (!this.isYellow) {
       this.phase = this.phase + 1;

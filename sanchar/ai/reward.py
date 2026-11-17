@@ -90,7 +90,12 @@ def compute_reward(
     if emergency_approaching or curr_state[6] > 0.5:
         r_emergency = -3.0
 
-    total_reward = r_pressure + r_throughput + r_switch + r_wait + r_emergency
+    # 6. Arterial Green Wave Platoon Progression Bonus
+    r_wave = 0.0
+    if float(curr_state[5]) > 0.8 and not is_switch:
+        r_wave = 2.0  # Reward holding green wave for incoming arterial platoons
+
+    total_reward = r_pressure + r_throughput + r_switch + r_wait + r_emergency + r_wave
 
     # Bound reward to prevent gradient explosion
     return float(np.clip(total_reward, -15.0, 15.0))
